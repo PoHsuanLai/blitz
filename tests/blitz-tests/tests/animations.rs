@@ -26,3 +26,57 @@ fn resolve_does_not_panic_after_removing_animated_node() {
     // Must not panic: stale animation entry should be skipped safely.
     doc.resolve(0.1);
 }
+
+const FADE: &str = r#"
+    <style>
+      @keyframes fade { from { opacity: 0; } to { opacity: 1; } }
+      .fade { animation: fade 1s linear; }
+    </style>
+    <div id="target" class="fade">animated</div>
+"#;
+
+fn opacity_of(doc: &HtmlDocument) -> f32 {
+    let id = doc.get_element_by_id("target").unwrap();
+    doc.get_node(id)
+        .unwrap()
+        .primary_styles()
+        .unwrap()
+        .clone_opacity()
+}
+
+fn set_class(doc: &mut HtmlDocument, value: &str) {
+    let id = doc.get_element_by_id("target").unwrap();
+    let class = blitz_dom::QualName::new(None, blitz_dom::ns!(), blitz_dom::local_name!("class"));
+    doc.mutate().set_attribute(id, class, value);
+}
+
+/// Removing `animation-name` before the animation ends cancels it. The
+/// cancelling restyle still cascades the animation's value at that moment, so
+/// the element must be restyled again once the cancelled animation is gone;
+/// otherwise the stale value sticks until something else restyles the node.
+#[test]
+fn cancelled_animation_leaves_no_value_behind() {
+    let mut doc = HtmlDocument::from_html(FADE, DocumentConfig::default());
+    doc.resolve(0.0);
+    doc.resolve(0.25);
+    assert!((opacity_of(&doc) - 0.25).abs() < 0.01, "animating");
+
+    set_class(&mut doc, "");
+    doc.resolve(0.5);
+    assert_eq!(opacity_of(&doc), 1.0, "resting value after cancel");
+
+    doc.resolve(0.75);
+    assert_eq!(opacity_of(&doc), 1.0, "still at rest");
+}
+
+/// Control: an animation that ran to its end and is then removed leaves the
+/// resting value too.
+#[test]
+fn finished_animation_removed_leaves_no_value_behind() {
+    let mut doc = HtmlDocument::from_html(FADE, DocumentConfig::default());
+    doc.resolve(0.0);
+    doc.resolve(1.5);
+    set_class(&mut doc, "");
+    doc.resolve(2.0);
+    assert_eq!(opacity_of(&doc), 1.0);
+}
