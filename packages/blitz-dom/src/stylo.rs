@@ -63,21 +63,7 @@ impl crate::document::BaseDocument {
     pub fn resolve_stylist(&mut self, now: f64) {
         style::thread_state::enter(ThreadState::LAYOUT);
 
-        let guard = &self.guard;
-        let guards = StylesheetGuards {
-            author: &guard.read(),
-            ua_or_user: &guard.read(),
-        };
-
-        let root = TDocument::as_node(&&self.nodes[self.root_node_id])
-            .first_element_child()
-            .unwrap()
-            .as_element()
-            .unwrap();
-
-        self.stylist
-            .flush(&guards)
-            .process_style(root, Some(&self.snapshots));
+        self.flush_stylist();
 
         // Mark actively animating nodes as dirty
         let mut sets = self.animations.sets.write();
@@ -124,6 +110,60 @@ impl crate::document::BaseDocument {
         }
         drop(sets);
 
+        self.traverse_styles(now);
+
+        // Rule matching cascades an animation's value before Stylo marks it as
+        // cancelled, so restyle elements whose animations changed to drop it.
+        if self.restyle_elements_with_changed_animations() {
+            self.traverse_styles(now);
+        }
+
+        let mut sets = self.animations.sets.write();
+        for set in sets.values_mut() {
+            set.clear_canceled_animations();
+            for animation in set.animations.iter_mut() {
+                animation.is_new = false;
+            }
+            for transition in set.transitions.iter_mut() {
+                transition.is_new = false;
+            }
+        }
+        sets.retain(|_, state| !state.is_empty());
+        self.has_active_animations = sets.values().any(|state| state.needs_animation_ticks());
+
+        // Maybe run garbage collection. Stylo has internal to determine whether to run or not.
+        self.stylist.rule_tree().maybe_gc();
+
+        style::thread_state::exit(ThreadState::LAYOUT);
+    }
+
+    /// Flush stylesheet changes into the stylist.
+    fn flush_stylist(&mut self) {
+        let guard = &self.guard;
+        let guards = StylesheetGuards {
+            author: &guard.read(),
+            ua_or_user: &guard.read(),
+        };
+
+        let root = TDocument::as_node(&&self.nodes[self.root_node_id])
+            .first_element_child()
+            .unwrap()
+            .as_element()
+            .unwrap();
+
+        self.stylist
+            .flush(&guards)
+            .process_style(root, Some(&self.snapshots));
+    }
+
+    /// Run the Stylo traversal over every element with a pending restyle.
+    fn traverse_styles(&mut self, now: f64) {
+        let guard = &self.guard;
+        let guards = StylesheetGuards {
+            author: &guard.read(),
+            ua_or_user: &guard.read(),
+        };
+
         // Build the style context used by the style traversal
         let context = SharedStyleContext {
             traversal_flags: TraversalFlags::empty(),
@@ -164,24 +204,40 @@ impl crate::document::BaseDocument {
             }
         }
         self.snapshots.clear();
+    }
 
+    /// Drop cancelled animations and transitions, and mark every element whose
+    /// animation set changed (Stylo's `ElementAnimationSet::dirty`, or a
+    /// cancelled entry) for a restyle. Returns whether any element was marked.
+    fn restyle_elements_with_changed_animations(&mut self) -> bool {
         let mut sets = self.animations.sets.write();
-        for set in sets.values_mut() {
-            set.clear_canceled_animations();
-            for animation in set.animations.iter_mut() {
-                animation.is_new = false;
+        let mut restyled = false;
+        for (key, set) in sets.iter_mut() {
+            let has_cancelled = set
+                .animations
+                .iter()
+                .any(|animation| animation.state == AnimationState::Canceled)
+                || set
+                    .transitions
+                    .iter()
+                    .any(|transition| transition.state == AnimationState::Canceled);
+            if !set.dirty && !has_cancelled {
+                continue;
             }
-            for transition in set.transitions.iter_mut() {
-                transition.is_new = false;
+            set.clear_canceled_animations();
+            set.dirty = false;
+
+            let node_id = NodeId::from_u64(key.node.id() as u64);
+            if let Some(node) = self
+                .nodes
+                .get_mut(node_id)
+                .filter(|node| node.flags.is_in_document())
+            {
+                node.set_restyle_hint(RestyleHint::RESTYLE_SELF);
+                restyled = true;
             }
         }
-        sets.retain(|_, state| !state.is_empty());
-        self.has_active_animations = sets.values().any(|state| state.needs_animation_ticks());
-
-        // Maybe run garbage collection. Stylo has internal to determine whether to run or not.
-        self.stylist.rule_tree().maybe_gc();
-
-        style::thread_state::exit(ThreadState::LAYOUT);
+        restyled
     }
 
     /// Compute the style of an element which the regular style traversal
