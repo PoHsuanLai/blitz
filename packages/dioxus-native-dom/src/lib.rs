@@ -29,6 +29,17 @@ pub(crate) fn qual_name(local_name: &str, namespace: Option<&str>) -> QualName {
     }
 }
 
+/// The name of an attribute. Dioxus attributes with no namespace are in no namespace, as in the
+/// DOM, so an unprefixed attribute selector (`[data-x=y]`) matches them; elements are in the
+/// HTML namespace (see [`qual_name`]).
+pub(crate) fn attr_name(local_name: &str, namespace: Option<&str>) -> QualName {
+    QualName {
+        prefix: None,
+        ns: namespace.map(Namespace::from).unwrap_or(ns!()),
+        local: LocalName::from(local_name),
+    }
+}
+
 // Syntax sugar to make tracing calls less noisy in function below
 macro_rules! trace {
     ($pattern:literal) => {{
