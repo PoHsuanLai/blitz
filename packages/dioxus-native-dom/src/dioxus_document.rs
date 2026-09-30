@@ -5,7 +5,7 @@ use crate::events::{
     NativeScrollData, NativeTouchData, NativeWheelData, NodeHandle,
 };
 use crate::mutation_writer::{DioxusState, MutationWriter};
-use crate::qual_name;
+use crate::{attr_name, qual_name};
 use blitz_dom::{
     Attribute, BaseDocument, DEFAULT_CSS, DocGuard, DocGuardMut, Document, DocumentConfig,
     EventDriver, EventHandler, Node,
@@ -122,7 +122,7 @@ impl DioxusDocument {
 
         // Create another virtual element to hold the root <div id="main"></div> under the html element
         let main_attr = blitz_dom::Attribute {
-            name: qual_name("id", None),
+            name: attr_name("id", None),
             value: "main".to_string(),
         };
         let main_element_id = mutr.create_element(qual_name("main", None), vec![main_attr]);
@@ -167,7 +167,7 @@ impl DioxusDocument {
         let attributes = attributes
             .iter()
             .map(|(name, value)| Attribute {
-                name: qual_name(name, None),
+                name: attr_name(name, None),
                 value: value.clone(),
             })
             .collect();
@@ -408,5 +408,35 @@ mod tests {
         let inner = doc.inner.borrow();
         let main = inner.get_node(doc.main_element_id).unwrap();
         assert_eq!(main.children.len(), 100);
+    }
+
+    #[test]
+    // An unprefixed attribute selector matches a Dioxus attribute (which has no namespace), for
+    // static template attributes and for attributes set after the first render.
+    fn unprefixed_attribute_selector_matches() {
+        fn app() -> Element {
+            let state = "off";
+            rsx!(
+                div { "data-surface": "bar", "data-state": "{state}", "aria-selected": "true" }
+            )
+        }
+
+        let vdom = VirtualDom::new(app);
+        let mut doc = DioxusDocument::new(vdom, DocumentConfig::default());
+        doc.initial_build();
+
+        let matches = |doc: &DioxusDocument, selector: &str| {
+            doc.inner
+                .borrow()
+                .query_selector(selector)
+                .ok()
+                .flatten()
+                .is_some()
+        };
+        assert!(matches(&doc, "[data-surface=bar]"));
+        assert!(matches(&doc, "[aria-selected=true]"));
+        assert!(matches(&doc, "[*|data-surface=bar]"));
+        assert!(matches(&doc, "[data-state=off]"));
+        assert!(!matches(&doc, "[data-surface=baz]"));
     }
 }
