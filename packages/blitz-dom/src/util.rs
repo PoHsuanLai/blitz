@@ -156,8 +156,14 @@ pub fn walk_tree(indent: usize, node: &Node) {
 /// Parse an SVG image.
 #[cfg(feature = "svg")]
 pub(crate) fn parse_svg_image(source: &[u8]) -> Result<crate::node::SvgImageData, usvg::Error> {
+    // Only resolve `data:` URIs. usvg's default resolver reads other hrefs as local file paths,
+    // bypassing the document's net provider.
     let options = usvg::Options {
         fontdb: Arc::clone(&*FONT_DB),
+        image_href_resolver: usvg::ImageHrefResolver {
+            resolve_data: usvg::ImageHrefResolver::default_data_resolver(),
+            resolve_string: Box::new(|_, _| None),
+        },
         ..Default::default()
     };
     crate::node::SvgImageData::from_data(source, &options)
@@ -180,6 +186,46 @@ impl ToColorColor for AbsoluteColor {
 #[cfg(all(test, feature = "svg"))]
 mod svg_tests {
     use super::parse_svg_image;
+
+    /// A 1x1 PNG, base64 encoded.
+    const DOT_PNG: &str = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAFBQIAX8jx0gAAAABJRU5ErkJggg==";
+
+    /// The same PNG, decoded.
+    const DOT_PNG_BYTES: &[u8] = &[
+        137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13, 73, 72, 68, 82, 0, 0, 0, 1, 0, 0, 0, 1, 8, 6,
+        0, 0, 0, 31, 21, 196, 137, 0, 0, 0, 13, 73, 68, 65, 84, 120, 218, 99, 252, 207, 192, 240,
+        31, 0, 5, 5, 2, 0, 95, 200, 241, 210, 0, 0, 0, 0, 73, 69, 78, 68, 174, 66, 96, 130,
+    ];
+
+    fn svg_with_image(href: &str) -> String {
+        format!(
+            r#"<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><image href="{href}" width="10" height="10"/></svg>"#
+        )
+    }
+
+    #[test]
+    fn image_href_data_uri_is_drawn() {
+        let svg = svg_with_image(&format!("data:image/png;base64,{DOT_PNG}"));
+        let image = parse_svg_image(svg.as_bytes()).unwrap();
+        assert!(
+            !image.tree.root().children().is_empty(),
+            "the data: image was dropped"
+        );
+    }
+
+    #[test]
+    fn image_href_to_a_local_path_is_not_read() {
+        let dir = std::env::temp_dir().join(format!("blitz-svg-href-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let png = dir.join("dot.png");
+        std::fs::write(&png, DOT_PNG_BYTES).unwrap();
+        let image = parse_svg_image(svg_with_image(&png.display().to_string()).as_bytes()).unwrap();
+        std::fs::remove_dir_all(&dir).ok();
+        assert!(
+            image.tree.root().children().is_empty(),
+            "a path href was read from disk"
+        );
+    }
 
     #[test]
     fn svg_without_xmlns_parses() {
