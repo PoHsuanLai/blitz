@@ -3332,3 +3332,73 @@ mod font_face_override_tests {
         );
     }
 }
+
+#[cfg(test)]
+mod hit_outside_stacking_parent_tests {
+    use super::*;
+    use crate::{Attribute, qual_name};
+    use blitz_traits::shell::ColorScheme;
+
+    /// Build `<body style="margin:0"><div footer 60px at y=60 (body padding)><div parent style=PARENT>
+    /// <div pill absolute bottom:0 80x30/></div></div></body>`: the pill is drawn above its
+    /// (empty or 1px) parent, inside the footer. Returns the document, the footer and the pill.
+    fn make_doc(parent_style: &str) -> (BaseDocument, NodeId, NodeId) {
+        let mut doc = BaseDocument::new(DocumentConfig {
+            viewport: Some(Viewport::new(300, 200, 1.0, ColorScheme::Light)),
+            ..Default::default()
+        });
+        // No user-agent sheet is loaded, so elements default to `display: inline`.
+        doc.add_user_agent_stylesheet("html, body, div { display: block; }");
+        let root_id = doc.root_node().id;
+        let style = |value: &str| Attribute {
+            name: qual_name!("style"),
+            value: value.to_string(),
+        };
+
+        let mut mutator = doc.mutate();
+        let html = mutator.create_element(qual_name!("html"), vec![]);
+        let body =
+            mutator.create_element(qual_name!("body"), vec![style("margin:0;padding-top:60px")]);
+        let footer = mutator.create_element(qual_name!("div"), vec![style("height:60px")]);
+        let parent = mutator.create_element(qual_name!("div"), vec![style(parent_style)]);
+        let pill = mutator.create_element(
+            qual_name!("div"),
+            vec![style("position:absolute;bottom:0;width:80px;height:30px")],
+        );
+        mutator.append_children(parent, &[pill]);
+        mutator.append_children(footer, &[parent]);
+        mutator.append_children(body, &[footer]);
+        mutator.append_children(html, &[body]);
+        mutator.append_children(root_id, &[html]);
+        drop(mutator);
+
+        // Hoisted boxes record their offsets from the previous layout, so lay out twice.
+        doc.resolve(0.0);
+        doc.resolve(0.0);
+        (doc, footer, pill)
+    }
+
+    /// The node under the pill's centre.
+    fn hit_pill_centre(parent_style: &str) -> (Option<NodeId>, NodeId, NodeId) {
+        let (doc, footer, pill) = make_doc(parent_style);
+        let pill_box = doc.nodes[pill].absolute_position(0.0, 0.0);
+        let size = doc.nodes[pill].final_layout().size;
+        let hit = doc.hit(
+            pill_box.x + size.width / 2.0,
+            pill_box.y + size.height / 2.0,
+        );
+        (hit.map(|hit| hit.node_id), footer, pill)
+    }
+
+    #[test]
+    fn a_child_outside_an_empty_stacking_parent_is_hit() {
+        for style in [
+            "position:relative;z-index:1;height:0;width:100px",
+            "position:relative;z-index:1;height:1px;width:100px",
+            "position:relative;height:0;width:100px",
+        ] {
+            let (hit, _, pill) = hit_pill_centre(style);
+            assert_eq!(hit, Some(pill), "{style}");
+        }
+    }
+}

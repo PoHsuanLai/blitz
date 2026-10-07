@@ -1374,16 +1374,16 @@ impl Node {
             || y < 0.0
             || y > overflow_rect.bottom + self.scroll_offset().y as f32);
 
-        let matches_hoisted_content = match &self.stacking_context {
-            Some(sc) => {
-                let content_area = sc.content_area;
-                x >= content_area.left + self.scroll_offset().x as f32
-                    && x <= content_area.right + self.scroll_offset().x as f32
-                    && y >= content_area.top + self.scroll_offset().y as f32
-                    && y <= content_area.bottom + self.scroll_offset().y as f32
-            }
-            None => false,
-        };
+        let matches_hoisted_content = self
+            .stacking_context
+            .as_ref()
+            .and_then(|sc| sc.content_area(self.tree(), scale))
+            .is_some_and(|area| {
+                x >= area.left + self.scroll_offset().x as f32
+                    && x <= area.right + self.scroll_offset().x as f32
+                    && y >= area.top + self.scroll_offset().y as f32
+                    && y <= area.bottom + self.scroll_offset().y as f32
+            });
 
         // `scrollable_overflow` is stored in device (scaled) pixels, whereas the
         // coordinates here are in CSS pixels, so unscale it before comparing.

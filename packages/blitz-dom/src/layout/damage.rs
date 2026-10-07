@@ -17,7 +17,6 @@ use style::values::generics::image::Image as StyloImage;
 use style::values::specified::align::AlignFlags;
 use style::values::specified::box_::DisplayInside;
 use style::values::specified::box_::DisplayOutside;
-use taffy::Rect;
 use thin_vec::ThinVec;
 
 // Blitz-specific damage bits, in increasing order of severity above Servo's
@@ -392,8 +391,6 @@ pub struct HoistedPaintChildren {
     pub children: Vec<HoistedPaintChild>,
     /// The number of hoisted point children with negative z_index
     pub negative_z_count: u32,
-
-    pub content_area: taffy::Rect<f32>,
 }
 
 impl HoistedPaintChildren {
@@ -401,7 +398,6 @@ impl HoistedPaintChildren {
         Self {
             children: Vec::new(),
             negative_z_count: 0,
-            content_area: taffy::Rect::ZERO,
         }
     }
 
@@ -410,34 +406,32 @@ impl HoistedPaintChildren {
         self.negative_z_count = 0;
     }
 
-    pub fn compute_content_size(&mut self, doc: &BaseDocument) {
-        fn child_pos(child: &HoistedPaintChild, doc: &BaseDocument) -> Rect<f32> {
-            let node = &doc.nodes[child.node_id];
-            let left = child.position.x + node.final_layout().location.x;
-            let top = child.position.y + node.final_layout().location.y;
-            let right = left + node.final_layout().size.width;
-            let bottom = top + node.final_layout().size.height;
-
-            taffy::Rect {
-                top,
-                left,
-                bottom,
-                right,
-            }
-        }
-
-        if self.children.is_empty() {
-            self.content_area = taffy::Rect::ZERO;
-        } else {
-            self.content_area = child_pos(&self.children[0], doc);
-            for child in self.children[1..].iter() {
-                let pos = child_pos(child, doc);
-                self.content_area.left = self.content_area.left.min(pos.left);
-                self.content_area.top = self.content_area.top.min(pos.top);
-                self.content_area.right = self.content_area.right.max(pos.right);
-                self.content_area.bottom = self.content_area.bottom.max(pos.bottom);
-            }
-        }
+    /// The area, in this stacking context's coordinates, covered by the hoisted children: each
+    /// child's border box united with its scrollable overflow (so a positioned descendant drawn
+    /// outside a small or empty child is included). Read from the current layout, so it is never
+    /// older than the boxes it bounds. `scale` converts the device-pixel overflow to CSS pixels.
+    pub fn content_area(&self, nodes: &NodeTree, scale: f64) -> Option<taffy::Rect<f32>> {
+        self.children
+            .iter()
+            .map(|child| {
+                let node = &nodes[child.node_id];
+                let layout = node.final_layout();
+                let overflow = node.scrollable_overflow();
+                let left = child.position.x + layout.location.x;
+                let top = child.position.y + layout.location.y;
+                taffy::Rect {
+                    left: left + ((overflow.x0 / scale) as f32).min(0.0),
+                    top: top + ((overflow.y0 / scale) as f32).min(0.0),
+                    right: left + layout.size.width.max((overflow.x1 / scale) as f32),
+                    bottom: top + layout.size.height.max((overflow.y1 / scale) as f32),
+                }
+            })
+            .reduce(|a, b| taffy::Rect {
+                left: a.left.min(b.left),
+                top: a.top.min(b.top),
+                right: a.right.max(b.right),
+                bottom: a.bottom.max(b.bottom),
+            })
     }
 
     pub fn sort(&mut self) {
@@ -708,7 +702,6 @@ impl BaseDocument {
                 .extend(stacking_context.children.iter().cloned());
         } else {
             stacking_context.sort();
-            stacking_context.compute_content_size(self);
             self.nodes[node_id].stacking_context = Some(Box::new(new_stacking_context));
         }
     }
