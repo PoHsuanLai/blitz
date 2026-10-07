@@ -7,7 +7,7 @@ use std::sync::Mutex;
 use std::sync::atomic::Ordering;
 
 use crate::StyleThreading;
-use crate::layout::damage::compute_layout_damage;
+use crate::layout::damage::{CONSTRUCT_BOX, compute_layout_damage};
 use crate::node::Node;
 use crate::node::NodeData;
 use markup5ever::{LocalName, LocalNameStaticSet, Namespace, NamespaceStaticSet, local_name};
@@ -1376,7 +1376,15 @@ impl<'dom> DomTraversal<BlitzNode<'dom>> for RecalcStyle<'_> {
         if let Some(el) = node.as_element() {
             // let mut data = el.mutate_data().unwrap();
             let mut data = unsafe { el.ensure_data() };
+            let colour_before = inline_svg_colour(el, &data);
             recalc_style_at(self, traversal_data, context, el, &mut data, note_child);
+
+            // An inline `<svg>` has its `currentColor` baked into the tree parsed when the box is
+            // built, and a colour-only restyle (REPAINT damage) builds nothing again: rebuild
+            // the box when the colour it was built with is no longer the element's own.
+            if colour_before.is_some() && colour_before != inline_svg_colour(el, &data) {
+                data.damage.insert(CONSTRUCT_BOX);
+            }
 
             sync_pseudo_element_styles(el, &data, &self.nodes_needing_style_image_flush);
 
@@ -1419,6 +1427,21 @@ impl<'dom> DomTraversal<BlitzNode<'dom>> for RecalcStyle<'_> {
     fn shared_context(&self) -> &SharedStyleContext<'_> {
         &self.context
     }
+}
+
+/// The computed `color` of an inline `<svg>` element, `None` for any other node or before it has
+/// a style.
+#[cfg(feature = "svg")]
+fn inline_svg_colour(el: &Node, data: &style::data::ElementData) -> Option<AbsoluteColor> {
+    let is_svg = el.data.is_element_with_tag_name(&local_name!("svg"));
+    is_svg
+        .then(|| data.styles.get_primary().map(|style| style.clone_color()))
+        .flatten()
+}
+
+#[cfg(not(feature = "svg"))]
+fn inline_svg_colour(_el: &Node, _data: &style::data::ElementData) -> Option<AbsoluteColor> {
+    None
 }
 
 /// Flush updated pseudo-element (`::before`/`::after`) styles from the owning
