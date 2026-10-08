@@ -206,6 +206,12 @@ fn add_pointer_fields(event: &JsObject, data: &BlitzPointerEvent, context: &mut 
 
 fn add_key_fields(event: &JsObject, data: &BlitzKeyEvent, context: &mut Context) {
     define_value(event, "key", js_str(&data.key.to_string()), context);
+    define_value(
+        event,
+        "keyWithoutModifiers",
+        js_str(&data.key_without_modifiers.to_string()),
+        context,
+    );
     define_value(event, "code", js_str(&data.code.to_string()), context);
     define_value(
         event,

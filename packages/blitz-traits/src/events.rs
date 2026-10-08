@@ -714,6 +714,9 @@ impl KeyState {
 #[derive(Clone, Debug)]
 pub struct BlitzKeyEvent {
     pub key: Key,
+    /// The key with no modifier applied (the unshifted character on the active layout).
+    /// Hosts that have no such information set it equal to `key`.
+    pub key_without_modifiers: Key,
     pub code: Code,
     pub modifiers: Modifiers,
     pub location: Location,
