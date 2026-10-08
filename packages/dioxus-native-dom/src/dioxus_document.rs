@@ -180,6 +180,18 @@ impl DioxusDocument {
         }
     }
 
+    /// Deliver focus events raised by moving focus from code
+    fn flush_pending_events(&mut self) {
+        if !self.inner.borrow().has_pending_events() {
+            return;
+        }
+        let handler = DioxusEventHandler {
+            vdom: &mut self.vdom,
+            vdom_state: &mut self.vdom_state,
+        };
+        EventDriver::new(&mut self.inner, handler).flush_pending_events();
+    }
+
     pub(crate) fn flush_queued_mounted_events(&mut self) {
         let mut queued_mounted_events = mem::take(&mut self.vdom_state.queued_mounted_events);
         for element_id in queued_mounted_events.drain(..) {
@@ -227,6 +239,7 @@ impl Document for DioxusDocument {
         // Poll any sub-documents, which may have pending async operations of
         // their own (e.g. JavaScript timers)
         let subdoc_changes = self.inner.borrow_mut().poll_subdocuments(Some(&waker));
+        self.flush_pending_events();
 
         {
             let fut = self.vdom.wait_for_work();
@@ -245,6 +258,7 @@ impl Document for DioxusDocument {
         drop(writer);
         drop(inner);
         self.flush_queued_mounted_events();
+        self.flush_pending_events();
 
         true
     }

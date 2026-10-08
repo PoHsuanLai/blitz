@@ -441,6 +441,15 @@ impl Document for ScriptDocument {
         }
 
         ran |= self.runtime.run_due_timers();
+
+        // Deliver focus events raised by script moving focus from a timer
+        if self.inner.borrow().has_pending_events() {
+            let handler = ScriptEventHandler {
+                runtime: &mut self.runtime,
+            };
+            EventDriver::new(&mut self.inner, handler).flush_pending_events();
+            ran = true;
+        }
         self.arm_timer_thread();
         ran
     }
