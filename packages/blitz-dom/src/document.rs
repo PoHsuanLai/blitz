@@ -140,8 +140,9 @@ pub trait Document: Any + 'static {
 
     /// Poll any pending async operations, and flush changes to the underlying [`BaseDocument`]
     fn poll(&mut self, task_context: Option<TaskContext>) -> bool {
-        // Default implementation does nothing
+        // Nothing handles events here, so drop the focus events raised from code
         let _ = task_context;
+        self.inner_mut().take_pending_focus_events();
         false
     }
 
@@ -321,6 +322,10 @@ pub struct BaseDocument {
     /// Set of changed nodes for updating the accessibility tree
     pub(crate) deferred_construction_nodes: Vec<ConstructionTask>,
 
+    /// Focus and blur events raised by moving focus from code (or by user focus, until the
+    /// event driver drains them). The event driver dispatches them in order.
+    pub(crate) pending_focus_events: Vec<DomEvent>,
+
     /// Nodes that contain custom widgets
     #[cfg(feature = "custom-widget")]
     pub(crate) custom_widget_nodes: HashSet<NodeId>,
@@ -476,6 +481,8 @@ impl BaseDocument {
             has_canvas: false,
             sub_document_nodes: HashSet::new(),
             iframe_loads: HashMap::new(),
+
+            pending_focus_events: Vec::new(),
 
             #[cfg(feature = "custom-widget")]
             custom_widget_nodes: HashSet::new(),
@@ -1658,6 +1665,34 @@ impl BaseDocument {
                 node.blur(shell_provider)
             });
             self.focus_node_id = None;
+            self.queue_focus_events(Some(id), None);
+        }
+    }
+
+    /// Whether focus events raised by code are waiting for an event driver
+    /// (see [`EventDriver::flush_pending_events`](crate::EventDriver::flush_pending_events)).
+    pub fn has_pending_events(&self) -> bool {
+        !self.pending_focus_events.is_empty()
+    }
+
+    pub(crate) fn take_pending_focus_events(&mut self) -> Vec<DomEvent> {
+        std::mem::take(&mut self.pending_focus_events)
+    }
+
+    /// Queue blur (old node) and focus (new node) events for a focus change
+    fn queue_focus_events(&mut self, old: Option<NodeId>, new: Option<NodeId>) {
+        use blitz_traits::events::{BlitzFocusEvent, DomEventData};
+        if let Some(old) = old {
+            self.pending_focus_events
+                .push(DomEvent::new(old, DomEventData::Blur(BlitzFocusEvent)));
+            self.pending_focus_events
+                .push(DomEvent::new(old, DomEventData::FocusOut(BlitzFocusEvent)));
+        }
+        if let Some(new) = new {
+            self.pending_focus_events
+                .push(DomEvent::new(new, DomEventData::Focus(BlitzFocusEvent)));
+            self.pending_focus_events
+                .push(DomEvent::new(new, DomEventData::FocusIn(BlitzFocusEvent)));
         }
     }
 
@@ -1691,7 +1726,8 @@ impl BaseDocument {
             |node| node.focus(shell_provider),
         );
 
-        self.focus_node_id = Some(focus_node_id);
+        let old_focus = self.focus_node_id.replace(focus_node_id);
+        self.queue_focus_events(old_focus, Some(focus_node_id));
 
         true
     }
