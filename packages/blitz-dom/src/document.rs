@@ -1657,7 +1657,9 @@ impl BaseDocument {
         Some(id)
     }
 
-    /// Clear the focussed node
+    /// Clear the focussed node. Silent: no `blur` is raised (a host that clears the focus on
+    /// purpose, under its own bookkeeping, hears nothing); [`set_focus_to`](Self::set_focus_to)
+    /// raises `blur` and `focus` for the elements it moves between.
     pub fn clear_focus(&mut self) {
         if let Some(id) = self.focus_node_id {
             let shell_provider = self.shell_provider.clone();
@@ -1665,7 +1667,6 @@ impl BaseDocument {
                 node.blur(shell_provider)
             });
             self.focus_node_id = None;
-            self.queue_focus_events(Some(id), None);
         }
     }
 
@@ -1699,6 +1700,10 @@ impl BaseDocument {
     pub fn set_mousedown_node_id(&mut self, node_id: Option<NodeId>) {
         self.mousedown_node_id = node_id.and_then(|id| self.nearest_non_anonymous_ancestor(id));
     }
+    /// Move the focus to `focus_node_id` (or its nearest non-anonymous ancestor). When the
+    /// focus changes this queues `blur` and `focusout` for the old element and `focus` and
+    /// `focusin` for the new one, dispatched by the next event driver pass (see
+    /// [`has_pending_events`](Self::has_pending_events)).
     pub fn set_focus_to(&mut self, focus_node_id: NodeId) -> bool {
         let Some(focus_node_id) = self.nearest_non_anonymous_ancestor(focus_node_id) else {
             return false;
