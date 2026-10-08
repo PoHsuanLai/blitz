@@ -81,6 +81,7 @@ pub fn key_event(key: Key, state: KeyState, modifiers: Modifiers) -> BlitzKeyEve
         _ => None,
     };
     BlitzKeyEvent {
+        key_without_modifiers: key.clone(),
         key,
         code: Code::Unidentified,
         modifiers,

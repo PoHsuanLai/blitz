@@ -53,18 +53,40 @@ pub(crate) fn winit_key_event_to_blitz(
     event: &WinitKeyEvent,
     mods: WinitModifiers,
 ) -> BlitzKeyEvent {
+    let key = winit_key_to_kbt_key(&event.logical_key);
+    let state = match event.state {
+        ElementState::Pressed => KeyState::Pressed,
+        ElementState::Released => KeyState::Released,
+    };
     BlitzKeyEvent {
-        key: winit_key_to_kbt_key(&event.logical_key),
+        modifiers: modifiers_at_key_event(winit_modifiers_to_kbt_modifiers(mods), &key, state),
+        key,
+        key_without_modifiers: winit_key_to_kbt_key(&event.key_without_modifiers),
         code: winit_physical_key_to_kbt_code(&event.physical_key),
-        modifiers: winit_modifiers_to_kbt_modifiers(mods),
         location: winit_key_location_to_kbt_location(event.location),
         is_auto_repeating: event.repeat,
         is_composing: false,
-        state: match event.state {
-            ElementState::Pressed => KeyState::Pressed,
-            ElementState::Released => KeyState::Released,
-        },
+        state,
         text: event.text.clone(),
+    }
+}
+
+/// The modifiers current at a key event.
+///
+/// winit reports `ModifiersChanged` after the key event of a modifier key itself, so
+/// the tracked state lags by one event: a Shift press would arrive without Shift and
+/// its release with it. A modifier key's own bit is set on press and cleared on release.
+fn modifiers_at_key_event(tracked: Modifiers, key: &Key, state: KeyState) -> Modifiers {
+    let own = match key {
+        Key::Shift => Modifiers::SHIFT,
+        Key::Control => Modifiers::CONTROL,
+        Key::Alt => Modifiers::ALT,
+        Key::Meta | Key::Super => Modifiers::SUPER,
+        _ => return tracked,
+    };
+    match state {
+        KeyState::Pressed => tracked | own,
+        KeyState::Released => tracked - own,
     }
 }
 
@@ -718,5 +740,35 @@ pub(crate) fn winit_key_to_kbt_key(winit_key: &WinitKey) -> Key {
 
             _ => Key::Unidentified,
         },
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_modifier_press_carries_its_own_bit() {
+        let mods = modifiers_at_key_event(Modifiers::empty(), &Key::Shift, KeyState::Pressed);
+        assert_eq!(mods, Modifiers::SHIFT);
+    }
+
+    #[test]
+    fn a_modifier_release_drops_its_own_bit_and_keeps_the_others() {
+        let held = Modifiers::SHIFT | Modifiers::CONTROL;
+        let mods = modifiers_at_key_event(held, &Key::Shift, KeyState::Released);
+        assert_eq!(mods, Modifiers::CONTROL);
+    }
+
+    #[test]
+    fn an_ordinary_key_keeps_the_tracked_modifiers() {
+        let mods = modifiers_at_key_event(Modifiers::ALT, &Key::Enter, KeyState::Pressed);
+        assert_eq!(mods, Modifiers::ALT);
+    }
+
+    #[test]
+    fn super_and_meta_both_set_the_super_bit() {
+        let mods = modifiers_at_key_event(Modifiers::empty(), &Key::Meta, KeyState::Pressed);
+        assert_eq!(mods, Modifiers::SUPER);
     }
 }

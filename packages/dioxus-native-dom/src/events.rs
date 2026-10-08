@@ -325,8 +325,11 @@ impl HasFileData for NativeFormData {
     }
 }
 
+/// A key event as Blitz saw it. Downcast a Dioxus `KeyboardData` to this
+/// (via `as_any`) for what Dioxus has no accessor for: the `text` the key produced and
+/// `key_without_modifiers`.
 #[derive(Clone, Debug)]
-pub(crate) struct BlitzKeyboardData(pub(crate) BlitzKeyEvent);
+pub struct BlitzKeyboardData(pub BlitzKeyEvent);
 
 impl ModifiersInteraction for BlitzKeyboardData {
     fn modifiers(&self) -> Modifiers {
