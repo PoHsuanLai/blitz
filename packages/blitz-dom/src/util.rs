@@ -4,10 +4,32 @@ use keyboard_types::Modifiers;
 use std::borrow::Cow;
 use style::color::AbsoluteColor;
 
+/// The modifiers that count as the action key (Cmd on macOS; Ctrl or Super elsewhere,
+/// so Super behaves as Cmd like in quire's `is_command`).
 #[cfg(target_os = "macos")]
-pub(crate) const ACTION_MOD: Modifiers = Modifiers::SUPER;
+pub(crate) const ACTION_MODS: Modifiers = Modifiers::SUPER;
 #[cfg(not(target_os = "macos"))]
-pub(crate) const ACTION_MOD: Modifiers = Modifiers::CONTROL;
+pub(crate) const ACTION_MODS: Modifiers = Modifiers::CONTROL.union(Modifiers::SUPER);
+
+/// True when any action modifier is held.
+pub(crate) fn is_action(mods: Modifiers) -> bool {
+    mods.intersects(ACTION_MODS)
+}
+
+#[cfg(all(test, not(target_os = "macos")))]
+mod action_tests {
+    use super::*;
+
+    #[test]
+    fn ctrl_and_super_are_action_off_macos() {
+        assert!(is_action(Modifiers::CONTROL));
+        assert!(is_action(Modifiers::SUPER));
+        assert!(is_action(Modifiers::CONTROL | Modifiers::SHIFT));
+        assert!(!is_action(Modifiers::SHIFT));
+        assert!(!is_action(Modifiers::ALT));
+        assert!(!is_action(Modifiers::empty()));
+    }
+}
 
 pub type Color = AlphaColor<Srgb>;
 
