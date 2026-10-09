@@ -19,6 +19,7 @@ mod dir_attribute;
 mod display_contents;
 mod flex_grid_order;
 mod focusability_updates;
+mod forwarded_pointer_events;
 mod fragment_navigation;
 mod harness_smoke;
 mod hover_dom_ancestors;

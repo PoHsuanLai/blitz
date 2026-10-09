@@ -81,6 +81,7 @@ fn map_dom_event_to_ui_event(
 
         DomEventData::KeyPress(_) => None,
         DomEventData::Click(_) => None,
+        // Recreated by the sub-document's event driver from its pointer events
         DomEventData::ContextMenu(_) => None,
         DomEventData::DoubleClick(_) => None,
         DomEventData::Input(_) => None,
@@ -91,6 +92,21 @@ fn map_dom_event_to_ui_event(
         DomEventData::FocusIn(_) => None,
         DomEventData::FocusOut(_) => None,
     }
+}
+
+/// Whether an event forwarded to a sub-document or custom widget is fully handled there.
+/// Pointer events also take the normal path on the host node, so that `click` and
+/// `contextmenu` are generated and bubble to its ancestors.
+fn ends_after_forwarding(data: &DomEventData) -> bool {
+    matches!(
+        data,
+        DomEventData::KeyDown(_)
+            | DomEventData::KeyPress(_)
+            | DomEventData::KeyUp(_)
+            | DomEventData::Ime(_)
+            | DomEventData::AppleStandardKeybinding(_)
+            | DomEventData::Wheel(_)
+    )
 }
 
 pub(crate) fn handle_dom_event<F: FnMut(DomEvent)>(
@@ -139,12 +155,14 @@ pub(crate) fn handle_dom_event<F: FnMut(DomEvent)>(
             );
         }
 
-        return;
+        if ends_after_forwarding(&event.data) {
+            return;
+        }
     }
 
     // Handle event forwarding for custom widget
     #[cfg(feature = "custom-widget")]
-    if let Some(widget_data) = node
+    if let Some(widget_data) = doc.nodes[target_node_id]
         .element_data_mut()
         .and_then(|el| el.custom_widget_data_mut())
     {
@@ -169,7 +187,9 @@ pub(crate) fn handle_dom_event<F: FnMut(DomEvent)>(
             );
         }
 
-        return;
+        if ends_after_forwarding(&event.data) {
+            return;
+        }
     }
 
     match &event.data {
