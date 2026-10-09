@@ -3,9 +3,7 @@
 //! what suppresses the click and context-menu events on release.
 
 use blitz_test_harness::{Harness, HarnessOptions, pointer_event};
-use blitz_traits::events::{
-    BlitzPointerId, MouseEventButton, MouseEventButtons, UiEvent,
-};
+use blitz_traits::events::{BlitzPointerId, MouseEventButton, MouseEventButtons, UiEvent};
 use keyboard_types::Modifiers;
 
 fn harness() -> Harness {
@@ -21,8 +19,20 @@ fn harness() -> Harness {
     )
 }
 
-fn at(x: f32, y: f32, button: MouseEventButton, held: MouseEventButtons) -> blitz_traits::events::BlitzPointerEvent {
-    pointer_event(BlitzPointerId::Mouse, x, y, button, held, Modifiers::default())
+fn at(
+    x: f32,
+    y: f32,
+    button: MouseEventButton,
+    held: MouseEventButtons,
+) -> blitz_traits::events::BlitzPointerEvent {
+    pointer_event(
+        BlitzPointerId::Mouse,
+        x,
+        y,
+        button,
+        held,
+        Modifiers::default(),
+    )
 }
 
 fn press_jitter_release(button: MouseEventButton) -> Vec<String> {
