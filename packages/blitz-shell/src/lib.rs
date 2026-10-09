@@ -45,6 +45,34 @@ pub use winit::event_loop::{ControlFlow, EventLoop, EventLoopProxy};
 pub use winit::window::Window;
 use winit::window::{ImeCapabilities, ImeEnableRequest, ImeRequest, ImeRequestData};
 
+#[cfg(all(
+    feature = "clipboard",
+    any(
+        target_os = "windows",
+        target_os = "macos",
+        target_os = "linux",
+        target_os = "dragonfly",
+        target_os = "freebsd",
+        target_os = "netbsd",
+        target_os = "openbsd"
+    )
+))]
+/// Run `f` on the process's clipboard. The clipboard is created on first use and kept, as on
+/// X11 and Wayland the text set on it is only served for as long as the clipboard is alive.
+fn with_clipboard<T>(
+    f: impl FnOnce(&mut arboard::Clipboard) -> Result<T, arboard::Error>,
+) -> Result<T, blitz_traits::shell::ClipboardError> {
+    use std::sync::Mutex;
+    static CLIPBOARD: Mutex<Option<arboard::Clipboard>> = Mutex::new(None);
+
+    let mut guard = CLIPBOARD.lock().unwrap_or_else(|e| e.into_inner());
+    if guard.is_none() {
+        *guard = arboard::Clipboard::new().ok();
+    }
+    let clipboard = guard.as_mut().ok_or(blitz_traits::shell::ClipboardError)?;
+    f(clipboard).map_err(|_| blitz_traits::shell::ClipboardError)
+}
+
 #[derive(Default)]
 pub struct Config {
     pub stylesheets: Vec<String>,
@@ -165,9 +193,7 @@ impl ShellProvider for BlitzShellProvider {
         )
     ))]
     fn get_clipboard_text(&self) -> Result<String, blitz_traits::shell::ClipboardError> {
-        let mut cb = arboard::Clipboard::new().unwrap();
-        cb.get_text()
-            .map_err(|_| blitz_traits::shell::ClipboardError)
+        with_clipboard(|cb| cb.get_text())
     }
 
     #[cfg(all(
@@ -183,9 +209,7 @@ impl ShellProvider for BlitzShellProvider {
         )
     ))]
     fn set_clipboard_text(&self, text: String) -> Result<(), blitz_traits::shell::ClipboardError> {
-        let mut cb = arboard::Clipboard::new().unwrap();
-        cb.set_text(text.to_owned())
-            .map_err(|_| blitz_traits::shell::ClipboardError)
+        with_clipboard(|cb| cb.set_text(text))
     }
 
     #[cfg(all(
