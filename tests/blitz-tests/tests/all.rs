@@ -50,6 +50,7 @@ mod rotate_z_axis;
 mod scoped_query_selector;
 mod scrollbar_drag;
 mod scrollbars;
+mod secondary_button_context_menu;
 mod stale_dirty_descendants;
 mod stale_interaction_state;
 mod stale_node_mapping;

@@ -221,6 +221,9 @@ pub(crate) fn handle_pointermove<F: FnMut(DomEvent)>(
         let dy = y - doc.mousedown_position.y;
         if dx.abs() > 2.0 || dy.abs() > 2.0 {
             match event.id {
+                // Only the primary button selects text
+                BlitzPointerId::Mouse | BlitzPointerId::Pen
+                    if !buttons.contains(MouseEventButtons::Primary) => {}
                 BlitzPointerId::Mouse | BlitzPointerId::Pen => {
                     if let Some(mousedown_node_id) = doc.mousedown_node_id {
                         let node = &doc.nodes[mousedown_node_id];
