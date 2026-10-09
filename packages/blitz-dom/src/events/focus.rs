@@ -2,12 +2,7 @@ use blitz_traits::events::{BlitzFocusEvent, DomEvent, DomEventData};
 
 use crate::BaseDocument;
 
-/// Run a focus change made by a user action and dispatch the blur and focus events it caused,
-/// from how the focus differs before and after.
-///
-/// [`BaseDocument::set_focus_to`] queues the same events itself (so focus moved from code
-/// raises them); the ones it queued during `update_focus` are dropped here, not dispatched
-/// twice. Clearing the focus queues nothing, so the blur of a cleared focus comes from here.
+// Events queued by `set_focus_to` during `update_focus` are dropped, as they are dispatched here.
 pub(crate) fn generate_focus_events(
     doc: &mut BaseDocument,
     update_focus: &mut dyn FnMut(&mut BaseDocument),

@@ -442,7 +442,7 @@ impl Document for ScriptDocument {
 
         ran |= self.runtime.run_due_timers();
 
-        // Deliver focus events raised by script moving focus from a timer
+        // Deliver focus events queued by script
         if self.inner.borrow().has_pending_events() {
             let handler = ScriptEventHandler {
                 runtime: &mut self.runtime,

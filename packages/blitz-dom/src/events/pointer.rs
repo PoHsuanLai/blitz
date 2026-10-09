@@ -203,19 +203,6 @@ fn touch_action_pan_axes(doc: &BaseDocument, node_id: NodeId) -> (bool, bool) {
     (allow_x, allow_y)
 }
 
-/// Whether pointer events on `node` are forwarded to a sub-document or custom widget,
-/// which own any drag that starts there (so the host never starts a text selection).
-fn forwards_pointer_events(node: &crate::Node) -> bool {
-    #[cfg(feature = "custom-widget")]
-    if node
-        .element_data()
-        .is_some_and(|el| el.custom_widget_data().is_some())
-    {
-        return true;
-    }
-    node.subdoc().is_some()
-}
-
 pub(crate) fn handle_pointermove<F: FnMut(DomEvent)>(
     doc: &mut BaseDocument,
     target: NodeId,
@@ -234,14 +221,8 @@ pub(crate) fn handle_pointermove<F: FnMut(DomEvent)>(
         let dy = y - doc.mousedown_position.y;
         if dx.abs() > 2.0 || dy.abs() > 2.0 {
             match event.id {
-                // Only the primary button selects text; a jittery secondary-button
-                // press must still end in a context menu
-                BlitzPointerId::Mouse | BlitzPointerId::Pen
-                    if !buttons.contains(MouseEventButtons::Primary) => {}
                 BlitzPointerId::Mouse | BlitzPointerId::Pen => {
-                    if let Some(mousedown_node_id) = doc.mousedown_node_id
-                        && !forwards_pointer_events(&doc.nodes[mousedown_node_id])
-                    {
+                    if let Some(mousedown_node_id) = doc.mousedown_node_id {
                         let node = &doc.nodes[mousedown_node_id];
                         if let Some(style) = node.primary_styles() {
                             let user_select = style.clone_user_select();

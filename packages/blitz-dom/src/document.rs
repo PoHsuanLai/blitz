@@ -139,7 +139,7 @@ pub trait Document: Any + 'static {
 
     /// Poll any pending async operations, and flush changes to the underlying [`BaseDocument`]
     fn poll(&mut self, task_context: Option<TaskContext>) -> bool {
-        // Nothing handles events here, so drop the focus events raised from code
+        // Default implementation has no event handler, so drop focus events raised from code
         let _ = task_context;
         self.inner_mut().take_pending_focus_events();
         false
@@ -319,8 +319,7 @@ pub struct BaseDocument {
     /// Set of changed nodes for updating the accessibility tree
     pub(crate) deferred_construction_nodes: Vec<ConstructionTask>,
 
-    /// Focus and blur events raised by moving focus from code (or by user focus, until the
-    /// event driver drains them). The event driver dispatches them in order.
+    /// Focus events queued by `set_focus_to`, dispatched by the event driver
     pub(crate) pending_focus_events: Vec<DomEvent>,
 
     /// Nodes that contain custom widgets
@@ -1659,9 +1658,7 @@ impl BaseDocument {
         Some(id)
     }
 
-    /// Clear the focussed node. Silent: no `blur` is raised (a host that clears the focus on
-    /// purpose, under its own bookkeeping, hears nothing); [`set_focus_to`](Self::set_focus_to)
-    /// raises `blur` and `focus` for the elements it moves between.
+    /// Clear the focussed node. Unlike [`set_focus_to`](Self::set_focus_to) this raises no events.
     pub fn clear_focus(&mut self) {
         if let Some(id) = self.focus_node_id {
             let shell_provider = self.shell_provider.clone();
@@ -1672,7 +1669,7 @@ impl BaseDocument {
         }
     }
 
-    /// Whether focus events raised by code are waiting for an event driver
+    /// Whether focus events are waiting for an event driver
     /// (see [`EventDriver::flush_pending_events`](crate::EventDriver::flush_pending_events)).
     pub fn has_pending_events(&self) -> bool {
         !self.pending_focus_events.is_empty()
@@ -1702,10 +1699,8 @@ impl BaseDocument {
     pub fn set_mousedown_node_id(&mut self, node_id: Option<NodeId>) {
         self.mousedown_node_id = node_id.and_then(|id| self.nearest_non_anonymous_ancestor(id));
     }
-    /// Move the focus to `focus_node_id` (or its nearest non-anonymous ancestor). When the
-    /// focus changes this queues `blur` and `focusout` for the old element and `focus` and
-    /// `focusin` for the new one, dispatched by the next event driver pass (see
-    /// [`has_pending_events`](Self::has_pending_events)).
+    /// Move the focus to `focus_node_id` (or its nearest non-anonymous ancestor), queueing
+    /// blur and focus events for the elements involved.
     pub fn set_focus_to(&mut self, focus_node_id: NodeId) -> bool {
         let Some(focus_node_id) = self.nearest_non_anonymous_ancestor(focus_node_id) else {
             return false;

@@ -180,7 +180,7 @@ impl DioxusDocument {
         }
     }
 
-    /// Deliver focus events raised by moving focus from code
+    /// Deliver queued focus events
     fn flush_pending_events(&mut self) {
         if !self.inner.borrow().has_pending_events() {
             return;

@@ -310,8 +310,7 @@ impl<'doc, Handler: EventHandler> EventDriver<'doc, Handler> {
         self.process_queue();
     }
 
-    /// Dispatch the focus and blur events raised by moving focus from code
-    /// (`set_focus_to` and `clear_focus` outside a user action).
+    /// Dispatch the focus and blur events queued by [`BaseDocument::set_focus_to`].
     pub fn flush_pending_events(&mut self) {
         self.process_queue();
     }
@@ -325,7 +324,7 @@ impl<'doc, Handler: EventHandler> EventDriver<'doc, Handler> {
                 }
             }
 
-            // Handlers may move focus from code, which queues more events
+            // Handlers may move focus, which queues more events
             let pending = self.doc.inner_mut().take_pending_focus_events();
             if pending.is_empty() {
                 break;
