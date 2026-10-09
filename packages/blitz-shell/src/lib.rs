@@ -9,6 +9,8 @@
 //!  - `tracing`: Enables tracing support.
 
 mod application;
+#[cfg(feature = "clipboard")]
+mod clipboard_owner;
 mod convert_events;
 mod event;
 mod net;
@@ -39,6 +41,10 @@ pub use crate::net::DataUriNetProvider;
 use blitz_traits::shell::FileDialogFilter;
 use blitz_traits::shell::ShellProvider;
 use std::sync::Arc;
+
+/// The process's one clipboard, kept so text set on it stays served after the call returns.
+#[cfg(feature = "clipboard")]
+static CLIPBOARD: clipboard_owner::Owner<arboard::Clipboard> = clipboard_owner::Owner::new();
 use winit::cursor::{Cursor, CursorIcon};
 use winit::dpi::{LogicalPosition, LogicalSize};
 pub use winit::event_loop::{ControlFlow, EventLoop, EventLoopProxy};
@@ -165,9 +171,10 @@ impl ShellProvider for BlitzShellProvider {
         )
     ))]
     fn get_clipboard_text(&self) -> Result<String, blitz_traits::shell::ClipboardError> {
-        let mut cb = arboard::Clipboard::new().unwrap();
-        cb.get_text()
-            .map_err(|_| blitz_traits::shell::ClipboardError)
+        CLIPBOARD
+            .with(|| arboard::Clipboard::new().ok(), |cb| cb.get_text())
+            .and_then(Result::ok)
+            .ok_or(blitz_traits::shell::ClipboardError)
     }
 
     #[cfg(all(
@@ -183,9 +190,10 @@ impl ShellProvider for BlitzShellProvider {
         )
     ))]
     fn set_clipboard_text(&self, text: String) -> Result<(), blitz_traits::shell::ClipboardError> {
-        let mut cb = arboard::Clipboard::new().unwrap();
-        cb.set_text(text.to_owned())
-            .map_err(|_| blitz_traits::shell::ClipboardError)
+        CLIPBOARD
+            .with(|| arboard::Clipboard::new().ok(), |cb| cb.set_text(text))
+            .and_then(Result::ok)
+            .ok_or(blitz_traits::shell::ClipboardError)
     }
 
     #[cfg(all(
