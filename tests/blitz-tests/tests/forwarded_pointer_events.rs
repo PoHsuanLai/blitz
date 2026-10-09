@@ -124,3 +124,45 @@ fn a_jittery_drag_over_a_custom_widget_starts_no_selection() {
     assert!(names.iter().any(|(n, chain)| n == "contextmenu" && chain.contains(&outer)));
 }
 
+
+const LINKED: &str = r#"<html>
+    <body style="margin:0"><a id="l" href="../msg?id=7" style="display:block; height:100px">
+    <span id="word">link text</span></a></body></html>"#;
+
+/// A secondary press on a link inside a sub-document still reaches the host's ancestors
+/// as `contextmenu`, and the link under the pointer is the nearest enclosing `a[href]`
+/// of the sub-document, resolved against the sub-document's own base URL (Blitz takes it from the document's
+/// configuration, as for a `srcdoc` frame; it does not read a `<base>` element).
+#[test]
+fn a_right_click_on_a_link_in_a_sub_document_reaches_the_host_with_the_link_under_it() {
+    let mut harness = with_subdocument();
+    let inner = HtmlDocument::from_html(
+        LINKED,
+        DocumentConfig {
+            base_url: Some("https://mail.example/inbox/".to_owned()),
+            viewport: Some(Viewport::new(200, 100, 1.0, ColorScheme::Light)),
+            html_parser_provider: Some(Arc::new(HtmlProvider) as _),
+            ..Default::default()
+        },
+    );
+    let host = harness.node("#host");
+    harness.base_mut().mutate().set_sub_document(host, Box::new(inner));
+    harness.pump();
+
+    assert!(bubbles_to_outer(&mut harness, MouseEventButton::Secondary, "contextmenu"));
+
+    let mut base = harness.base_mut();
+    let sub = base.get_node_mut(host).and_then(|n| n.subdoc_mut()).expect("the sub-document");
+    sub.inner_mut().resolve(0.0);
+    let inner = sub.inner();
+    let hit = inner.hit(10.0, 10.0).expect("something under the pointer");
+    let (mut id, mut href) = (Some(hit.node_id), None);
+    while let Some(node) = id.and_then(|i| inner.get_node(i)) {
+        if let Some(h) = node.attr(blitz_dom::local_name!("href")) {
+            href = inner.url().join(h).ok().map(|u| u.to_string());
+            break;
+        }
+        id = node.parent;
+    }
+    assert_eq!(href.as_deref(), Some("https://mail.example/msg?id=7"));
+}
