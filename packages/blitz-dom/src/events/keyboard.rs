@@ -1,5 +1,5 @@
 use crate::events::focus::generate_focus_events;
-use crate::{BaseDocument, node::GeneratedTextInputEvent, util::is_action};
+use crate::{BaseDocument, TextAction, node::GeneratedTextInputEvent};
 use blitz_traits::node_id::NodeId;
 use blitz_traits::{
     SmolStr,
@@ -40,26 +40,24 @@ pub(crate) fn handle_key_or_input_event<F: FnMut(DomEvent)>(
             return;
         }
 
-        // Handle copy (Ctrl+C/Cmd+C) for text selection when no text input is focused
-        if event.state.is_pressed() {
-            let action_mod = is_action(event.modifiers);
-            if action_mod {
-                if let Key::Character(c) = &event.key {
-                    if c.to_lowercase() == "c" {
-                        // Check if we have a text selection (and no focused text input)
-                        let has_focused_text_input = doc.focus_node_id.is_some_and(|id| {
-                            doc.get_node(id)
-                                .and_then(|n| n.element_data())
-                                .is_some_and(|e| e.text_input_data().is_some())
-                        });
+        // Handle copy for text selection when no text input is focused
+        if event.state.is_pressed()
+            && doc
+                .text_action_resolver
+                .resolve(&event.key, event.modifiers)
+                == Some(TextAction::Copy)
+        {
+            // Check if we have a text selection (and no focused text input)
+            let has_focused_text_input = doc.focus_node_id.is_some_and(|id| {
+                doc.get_node(id)
+                    .and_then(|n| n.element_data())
+                    .is_some_and(|e| e.text_input_data().is_some())
+            });
 
-                        if !has_focused_text_input {
-                            if let Some(text) = doc.get_selected_text() {
-                                let _ = doc.shell_provider.set_clipboard_text(text);
-                                return;
-                            }
-                        }
-                    }
+            if !has_focused_text_input {
+                if let Some(text) = doc.get_selected_text() {
+                    let _ = doc.shell_provider.set_clipboard_text(text);
+                    return;
                 }
             }
         }
@@ -82,6 +80,7 @@ pub(crate) fn handle_key_or_input_event<F: FnMut(DomEvent)>(
                         &mut doc.font_ctx.lock().unwrap(),
                         &mut doc.layout_ctx,
                         &*doc.shell_provider,
+                        &*doc.text_action_resolver,
                         blitz_key_event,
                     ),
                 KeyboardOrTextInputEvent::AppleStandardKeyBinding(command) => input_data

@@ -6,7 +6,7 @@ use blitz_traits::{
 use keyboard_types::{Key, Modifiers};
 use parley::{ContentWidths, FontContext, LayoutContext};
 
-use crate::util::is_action;
+use crate::{TextAction, TextActionResolver};
 
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
 /// Parley Brush type for Blitz which contains the Blitz node id
@@ -197,6 +197,7 @@ impl TextInputData {
         font_ctx: &mut FontContext,
         layout_ctx: &mut LayoutContext<TextBrush>,
         shell_provider: &dyn ShellProvider,
+        text_action_resolver: &dyn TextActionResolver,
         event: BlitzKeyEvent,
     ) -> Option<GeneratedTextInputEvent> {
         // Do nothing if it is a keyup event
@@ -206,35 +207,32 @@ impl TextInputData {
 
         let mods = event.modifiers;
         let shift = mods.contains(Modifiers::SHIFT);
-        let action_mod = is_action(mods);
+        let action = text_action_resolver.resolve(&event.key, mods);
+        let command_chord = text_action_resolver.is_command_chord(&event.key, mods);
 
         let is_multiline = self.is_multiline;
         let editor = &mut self.editor;
         let mut driver = editor.driver(font_ctx, layout_ctx);
         match event.key {
-            Key::Character(c) if action_mod && matches!(c.as_str(), "c" | "x" | "v") => {
-                match c.to_lowercase().as_str() {
-                    "c" => {
-                        if let Some(text) = driver.editor.selected_text() {
-                            let _ = shell_provider.set_clipboard_text(text.to_owned());
-                        }
-                    }
-                    "x" => {
-                        if let Some(text) = driver.editor.selected_text() {
-                            let _ = shell_provider.set_clipboard_text(text.to_owned());
-                            driver.delete_selection()
-                        }
-                    }
-                    "v" => {
-                        let text = shell_provider.get_clipboard_text().unwrap_or_default();
-                        driver.insert_or_replace_selection(&text)
-                    }
-                    _ => unreachable!(),
+            _ if action == Some(TextAction::Copy) => {
+                if let Some(text) = driver.editor.selected_text() {
+                    let _ = shell_provider.set_clipboard_text(text.to_owned());
                 }
-
                 return Some(GeneratedTextInputEvent::Input);
             }
-            Key::Character(c) if action_mod && matches!(c.to_lowercase().as_str(), "a") => {
+            _ if action == Some(TextAction::Cut) => {
+                if let Some(text) = driver.editor.selected_text() {
+                    let _ = shell_provider.set_clipboard_text(text.to_owned());
+                    driver.delete_selection()
+                }
+                return Some(GeneratedTextInputEvent::Input);
+            }
+            _ if action == Some(TextAction::Paste) => {
+                let text = shell_provider.get_clipboard_text().unwrap_or_default();
+                driver.insert_or_replace_selection(&text);
+                return Some(GeneratedTextInputEvent::Input);
+            }
+            _ if action == Some(TextAction::SelectAll) => {
                 if shift {
                     driver.collapse_selection()
                 } else {
@@ -242,14 +240,50 @@ impl TextInputData {
                 }
                 return Some(GeneratedTextInputEvent::Select);
             }
+            _ if action == Some(TextAction::WordLeft) => {
+                if shift {
+                    driver.select_word_left()
+                } else {
+                    driver.move_word_left()
+                }
+                return Some(GeneratedTextInputEvent::Select);
+            }
+            _ if action == Some(TextAction::WordRight) => {
+                if shift {
+                    driver.select_word_right()
+                } else {
+                    driver.move_word_right()
+                }
+                return Some(GeneratedTextInputEvent::Select);
+            }
+            _ if action == Some(TextAction::TextStart) => {
+                if shift {
+                    driver.select_to_text_start()
+                } else {
+                    driver.move_to_text_start()
+                }
+                return Some(GeneratedTextInputEvent::Select);
+            }
+            _ if action == Some(TextAction::TextEnd) => {
+                if shift {
+                    driver.select_to_text_end()
+                } else {
+                    driver.move_to_text_end()
+                }
+                return Some(GeneratedTextInputEvent::Select);
+            }
+            _ if action == Some(TextAction::DeleteWord) => {
+                driver.delete_word();
+                return Some(GeneratedTextInputEvent::Input);
+            }
+            // On macOS this is handled by the apple standard keybindings
+            #[cfg(not(target_os = "macos"))]
+            _ if action == Some(TextAction::BackdeleteWord) => {
+                driver.backdelete_word();
+                return Some(GeneratedTextInputEvent::Input);
+            }
             Key::ArrowLeft => {
-                if action_mod {
-                    if shift {
-                        driver.select_word_left()
-                    } else {
-                        driver.move_word_left()
-                    }
-                } else if shift {
+                if shift {
                     driver.select_left()
                 } else {
                     driver.move_left()
@@ -257,13 +291,7 @@ impl TextInputData {
                 return Some(GeneratedTextInputEvent::Select);
             }
             Key::ArrowRight => {
-                if action_mod {
-                    if shift {
-                        driver.select_word_right()
-                    } else {
-                        driver.move_word_right()
-                    }
-                } else if shift {
+                if shift {
                     driver.select_right()
                 } else {
                     driver.move_right()
@@ -287,13 +315,7 @@ impl TextInputData {
                 return Some(GeneratedTextInputEvent::Select);
             }
             Key::Home => {
-                if action_mod {
-                    if shift {
-                        driver.select_to_text_start()
-                    } else {
-                        driver.move_to_text_start()
-                    }
-                } else if shift {
+                if shift {
                     driver.select_to_line_start()
                 } else {
                     driver.move_to_line_start()
@@ -301,13 +323,7 @@ impl TextInputData {
                 return Some(GeneratedTextInputEvent::Select);
             }
             Key::End => {
-                if action_mod {
-                    if shift {
-                        driver.select_to_text_end()
-                    } else {
-                        driver.move_to_text_end()
-                    }
-                } else if shift {
+                if shift {
                     driver.select_to_line_end()
                 } else {
                     driver.move_to_line_end()
@@ -315,22 +331,14 @@ impl TextInputData {
                 return Some(GeneratedTextInputEvent::Select);
             }
             Key::Delete => {
-                if action_mod {
-                    driver.delete_word()
-                } else {
-                    driver.delete()
-                }
+                driver.delete();
                 return Some(GeneratedTextInputEvent::Input);
             }
 
             // On macOS this is handled by the apple standard keybindings
             #[cfg(not(target_os = "macos"))]
             Key::Backspace => {
-                if action_mod {
-                    driver.backdelete_word()
-                } else {
-                    driver.backdelete()
-                }
+                driver.backdelete();
                 return Some(GeneratedTextInputEvent::Input);
             }
 
@@ -350,9 +358,7 @@ impl TextInputData {
                     return Some(GeneratedTextInputEvent::Submit);
                 }
             }
-            Key::Character(s)
-                if !mods.contains(Modifiers::CONTROL) && !mods.contains(Modifiers::SUPER) =>
-            {
+            Key::Character(s) if !command_chord => {
                 driver.insert_or_replace_selection(&s);
                 return Some(GeneratedTextInputEvent::Input);
             }

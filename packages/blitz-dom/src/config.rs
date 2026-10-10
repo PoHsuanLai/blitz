@@ -1,4 +1,4 @@
-use crate::HtmlParserProvider;
+use crate::{HtmlParserProvider, TextActionResolver};
 use blitz_traits::{
     navigation::NavigationProvider,
     net::{AbortSignal, NetProvider},
@@ -43,6 +43,9 @@ pub struct DocumentConfig {
     pub navigation_provider: Option<Arc<dyn NavigationProvider>>,
     /// Shell provider to redraw requests, clipboard, etc
     pub shell_provider: Option<Arc<dyn ShellProvider>>,
+    /// Resolver mapping key chords to text-editing actions (copy, paste, word movement, ...).
+    /// Defaults to [`DefaultTextActionResolver`].
+    pub text_action_resolver: Option<Arc<dyn TextActionResolver>>,
     /// HTML parser provider. Used to parse HTML for setInnerHTML
     pub html_parser_provider: Option<Arc<dyn HtmlParserProvider>>,
     /// Parley `FontContext`
