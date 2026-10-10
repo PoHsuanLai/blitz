@@ -1409,6 +1409,9 @@ impl Node {
             *scrollbar = Some(sb);
         }
 
+        // Child boxes (inline boxes included) are laid out in this node's border box, so they are
+        // tested in these coordinates (as they are painted); the text and `self` use content-box ones.
+        let (box_x, box_y) = (x, y);
         if self.flags.is_inline_root() {
             let content_box_offset = taffy::Point {
                 x: self.final_layout().padding.left + self.final_layout().border.left,
@@ -1436,7 +1439,10 @@ impl Node {
 
         // Call `.hit()` on each child in turn. If any return `Some` then return that value. Else return `Some(self.id).
         for child_id in self.paint_children.borrow().iter().flatten().rev() {
-            if let Some(hit) = self.with(*child_id).hit_inner(x, y, scale, scrollbar) {
+            if let Some(hit) = self
+                .with(*child_id)
+                .hit_inner(box_x, box_y, scale, scrollbar)
+            {
                 return Some(hit);
             }
         }
