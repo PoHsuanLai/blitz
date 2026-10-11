@@ -588,6 +588,20 @@ impl<Rend: WindowRenderer> View<Rend> {
         self.accessibility
             .process_window_event(&*self.window, &event);
 
+        // A pointer event is hit-tested against the layout. The vdom may have changed the tree since the
+        // last paint (a poll applies mutations; only a redraw resolves them), so resolve first: otherwise the
+        // hit lands on the boxes of the previous frame, including nodes that are gone.
+        if matches!(
+            event,
+            WindowEvent::PointerMoved { .. }
+                | WindowEvent::PointerButton { .. }
+                | WindowEvent::PointerLeft { .. }
+                | WindowEvent::MouseWheel { .. }
+        ) {
+            let animation_time = self.current_animation_time();
+            self.doc.inner_mut().resolve(animation_time);
+        }
+
         match event {
             WindowEvent::Destroyed => {}
             WindowEvent::ActivationTokenDone { .. } => {},
