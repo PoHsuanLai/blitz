@@ -946,7 +946,8 @@ fn create_text_editor(doc: &mut BaseDocument, input_element_id: NodeId, is_multi
         .unwrap_or_default();
 
     let element = &mut node.data.downcast_element_mut().unwrap();
-    if !matches!(element.special_data, SpecialElementData::TextInput(_)) {
+    let created = !matches!(element.special_data, SpecialElementData::TextInput(_));
+    if created {
         let mut text_input_data = TextInputData::new(is_multiline);
         let editor = &mut text_input_data.editor;
         editor.set_text(element.attr(local_name!("value")).unwrap_or(""));
@@ -967,7 +968,15 @@ fn create_text_editor(doc: &mut BaseDocument, input_element_id: NodeId, is_multi
     styles.insert(StyleProperty::LineHeight(parley_style.line_height));
     styles.insert(StyleProperty::Brush(parley_style.brush));
 
-    editor.refresh_layout(&mut doc.font_ctx.lock().unwrap(), &mut doc.layout_ctx);
+    let font_ctx = &mut doc.font_ctx.lock().unwrap();
+    let mut driver = editor.driver(font_ctx, &mut doc.layout_ctx);
+    if created {
+        // An editor built with its value starts with the caret at the end of it, as a browser's
+        // input does; parley's would sit at the start.
+        driver.move_to_text_end();
+    } else {
+        driver.refresh_layout();
+    }
 }
 
 fn create_checkbox_input(doc: &mut BaseDocument, input_element_id: NodeId) {

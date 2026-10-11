@@ -92,7 +92,10 @@ impl TextInputData {
     ) {
         if self.editor.text() != text {
             self.editor.set_text(text);
-            self.editor.driver(font_ctx, layout_ctx).refresh_layout();
+            // Text written from outside (the value attribute) leaves the caret at its end, as in
+            // a browser; parley keeps the old selection, which put it at the start of the new
+            // text, so a key typed next landed before it ("nvoicei").
+            self.editor.driver(font_ctx, layout_ctx).move_to_text_end();
         }
     }
 
