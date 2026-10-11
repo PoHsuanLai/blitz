@@ -1376,6 +1376,50 @@ mod test {
         assert_eq!(document.stylist_device().media_type(), MediaType::print());
     }
 
+    /// A production panic in mailo: a node removed after the last resolve stayed in its parent's
+    /// `paint_children` until the next one, and a hit test in between unwrapped its freed slot.
+    #[test]
+    fn a_hit_test_between_a_removal_and_the_next_resolve_does_not_panic() {
+        let mut document = BaseDocument::new(DocumentConfig::default());
+        document.set_viewport(Viewport::new(200, 200, 1.0, ColorScheme::Light));
+        let block = |document: &mut BaseDocument| {
+            document.create_node(NodeData::Element(Box::new(ElementData::new(
+                qual_name!("div"),
+                vec![],
+            ))))
+        };
+        let outer = block(&mut document);
+        let inner = block(&mut document);
+        let banner = block(&mut document);
+        let root = document.root_node().id;
+        let mut mutator = document.mutate();
+        mutator.append_children(root, &[outer]);
+        mutator.append_children(outer, &[banner, inner]);
+        for id in [outer, banner, inner] {
+            mutator.set_attribute(
+                id,
+                qual_name!("style"),
+                "display:block;width:100px;height:40px",
+            );
+        }
+        drop(mutator);
+        document.resolve(0.0);
+        assert_eq!(
+            document.hit(10.0, 10.0).map(|hit| hit.node_id),
+            Some(banner)
+        );
+
+        let mut mutator = document.mutate();
+        mutator.remove_and_drop_node(banner);
+        drop(mutator);
+        let hit = document.hit(10.0, 10.0).map(|hit| hit.node_id);
+        assert_ne!(hit, Some(banner), "the removed node is not hit");
+        assert!(hit.is_none_or(|id| document.get_node(id).is_some()));
+
+        document.resolve(0.0);
+        assert_eq!(document.hit(10.0, 10.0).map(|hit| hit.node_id), Some(inner));
+    }
+
     #[test]
     fn mutator_remove_disabled() {
         let mut document = BaseDocument::new(DocumentConfig::default());

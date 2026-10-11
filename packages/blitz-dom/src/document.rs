@@ -881,6 +881,19 @@ impl BaseDocument {
     /// it so that stale NodeIds are never dereferenced after the slot is freed.
     pub(crate) fn remove_node_from_tree(&mut self, node_id: NodeId) -> Option<Node> {
         self.clear_interaction_state_for_removed_node(node_id);
+        // The parent's paint list is only rebuilt on resolve; drop the id now, so a hit test before then
+        // does not reach a freed (or reused) slot through it.
+        let parents = self
+            .nodes
+            .get(node_id)
+            .map(|node| [node.layout_parent.get(), node.parent]);
+        for parent in parents.into_iter().flatten().flatten() {
+            if let Some(parent) = self.nodes.get(parent)
+                && let Some(children) = parent.paint_children.borrow_mut().as_mut()
+            {
+                children.retain(|id| *id != node_id);
+            }
+        }
         self.nodes.remove(node_id)
     }
 

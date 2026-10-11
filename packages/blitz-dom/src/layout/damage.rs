@@ -413,8 +413,9 @@ impl HoistedPaintChildren {
     pub fn content_area(&self, nodes: &NodeTree, scale: f64) -> Option<taffy::Rect<f32>> {
         self.children
             .iter()
-            .map(|child| {
-                let node = &nodes[child.node_id];
+            // A node removed since the last resolve is skipped (hit tests call this between resolves).
+            .filter_map(|child| Some((child, nodes.get(child.node_id)?)))
+            .map(|(child, node)| {
                 let layout = node.final_layout();
                 let overflow = node.scrollable_overflow();
                 let left = child.position.x + layout.location.x;

@@ -1427,10 +1427,11 @@ impl Node {
                 for hoisted_child in hoisted.pos_z_hoisted_children().rev() {
                     let x = x - hoisted_child.position.x;
                     let y = y - hoisted_child.position.y;
-                    if let Some(hit) = self
-                        .with(hoisted_child.node_id)
-                        .hit_inner(x, y, scale, scrollbar)
-                    {
+                    // A node removed since the last resolve is still listed here until the next one.
+                    let Some(child) = self.tree().get(hoisted_child.node_id) else {
+                        continue;
+                    };
+                    if let Some(hit) = child.hit_inner(x, y, scale, scrollbar) {
                         return Some(hit);
                     }
                 }
@@ -1438,11 +1439,12 @@ impl Node {
         }
 
         // Call `.hit()` on each child in turn. If any return `Some` then return that value. Else return `Some(self.id).
+        // `paint_children` is rebuilt on resolve; a child removed since then is skipped, not unwrapped.
         for child_id in self.paint_children.borrow().iter().flatten().rev() {
-            if let Some(hit) = self
-                .with(*child_id)
-                .hit_inner(box_x, box_y, scale, scrollbar)
-            {
+            let Some(child) = self.tree().get(*child_id) else {
+                continue;
+            };
+            if let Some(hit) = child.hit_inner(box_x, box_y, scale, scrollbar) {
                 return Some(hit);
             }
         }
@@ -1453,10 +1455,11 @@ impl Node {
                 for hoisted_child in hoisted.neg_z_hoisted_children().rev() {
                     let x = x - hoisted_child.position.x;
                     let y = y - hoisted_child.position.y;
-                    if let Some(hit) = self
-                        .with(hoisted_child.node_id)
-                        .hit_inner(x, y, scale, scrollbar)
-                    {
+                    // A node removed since the last resolve is still listed here until the next one.
+                    let Some(child) = self.tree().get(hoisted_child.node_id) else {
+                        continue;
+                    };
+                    if let Some(hit) = child.hit_inner(x, y, scale, scrollbar) {
                         return Some(hit);
                     }
                 }
@@ -1475,8 +1478,9 @@ impl Node {
                 {
                     let style_index = cluster.glyphs().next()?.style_index();
                     let node_id = layout.styles()[style_index].brush.id;
-                    let text_pointer_events_none = self
-                        .with(node_id)
+                    // The text node may have been removed since this layout was built.
+                    let text_node = self.tree().get(node_id)?;
+                    let text_pointer_events_none = text_node
                         .primary_styles()
                         .is_some_and(|style| style.clone_pointer_events() == PointerEvents::None);
                     if !text_pointer_events_none {
