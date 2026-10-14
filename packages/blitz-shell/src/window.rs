@@ -40,10 +40,25 @@ fn get_safe_area_insets(window: &dyn Window) -> PhysicalInsets<u32> {
     window.safe_area()
 }
 
+/// Whether the shell answers its own keys before the document hears them: Ctrl or Super with
+/// `=`, `-` and `0` zoom the page, and Alt with `D`, `H` and `T` switch the layout overlay, the
+/// hover highlight and print the layout tree. An app that binds those keys itself (a terminal,
+/// where Alt+D and Ctrl+_ are the program's) turns them off and zooms through
+/// [`View::doc`]'s viewport.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum BuiltinKeys {
+    /// The shell zooms and toggles its overlays on those keys, and the document hears them too.
+    #[default]
+    On,
+    /// Every key goes to the document only.
+    Off,
+}
+
 pub struct WindowConfig<Rend: WindowRenderer> {
     doc: Box<dyn Document>,
     pub(crate) attributes: WindowAttributes,
     renderer: Rend,
+    builtin_keys: BuiltinKeys,
 }
 
 impl<Rend: WindowRenderer> WindowConfig<Rend> {
@@ -60,7 +75,14 @@ impl<Rend: WindowRenderer> WindowConfig<Rend> {
             doc,
             attributes,
             renderer,
+            builtin_keys: BuiltinKeys::default(),
         }
+    }
+
+    /// Whether the window answers its own zoom and overlay keys (on unless turned off).
+    pub fn with_builtin_keys(mut self, keys: BuiltinKeys) -> Self {
+        self.builtin_keys = keys;
+        self
     }
 }
 
@@ -77,6 +99,8 @@ pub struct View<Rend: WindowRenderer> {
     /// need to store them in order to have access to them when processing keypress events
     pub theme_override: Option<Theme>,
     pub keyboard_modifiers: Modifiers,
+    /// Whether the shell answers its own zoom and overlay keys.
+    pub builtin_keys: BuiltinKeys,
     pub buttons: MouseEventButtons,
     pub pointer_pos: PhysicalPosition<f64>,
     /// The non-mouse pointers (touch/pen) that are currently pressed, in the
@@ -212,6 +236,7 @@ impl<Rend: WindowRenderer> View<Rend> {
             waker: None,
             animation_timer: None,
             keyboard_modifiers: Default::default(),
+            builtin_keys: config.builtin_keys,
             proxy: proxy.clone(),
             window: winit_window.clone(),
             doc,
@@ -658,7 +683,10 @@ impl<Rend: WindowRenderer> View<Rend> {
                 self.keyboard_modifiers = new_state;
             }
             WindowEvent::KeyboardInput { event, .. } => {
-                if let PhysicalKey::Code(key_code) = event.physical_key && event.state.is_pressed() {
+                if let PhysicalKey::Code(key_code) = event.physical_key
+                    && event.state.is_pressed()
+                    && self.builtin_keys == BuiltinKeys::On
+                {
                         let ctrl = self.keyboard_modifiers.state().control_key();
                         let meta = self.keyboard_modifiers.state().meta_key();
                         let alt = self.keyboard_modifiers.state().alt_key();
