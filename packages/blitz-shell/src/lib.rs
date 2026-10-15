@@ -122,7 +122,16 @@ impl ShellProvider for BlitzShellProvider {
     fn set_ime_enabled(&self, is_enabled: bool) {
         if is_enabled {
             let _ = self.window.request_ime_update(ImeRequest::Enable(
-                ImeEnableRequest::new(ImeCapabilities::new(), ImeRequestData::default()).unwrap(),
+                // Ask for the cursor area too: winit drops updates for capabilities that were not
+                // enabled, which left the IME's candidate window at the window's corner.
+                ImeEnableRequest::new(
+                    ImeCapabilities::new().with_cursor_area(),
+                    ImeRequestData::default().with_cursor_area(
+                        LogicalPosition::new(0.0, 0.0).into(),
+                        LogicalSize::new(1.0, 1.0).into(),
+                    ),
+                )
+                .unwrap(),
             ));
         } else {
             let _ = self.window.request_ime_update(ImeRequest::Disable);
