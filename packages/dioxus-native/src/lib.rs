@@ -56,7 +56,7 @@ pub use android_activity::AndroidApp;
 
 #[cfg(any(feature = "vello", feature = "vello-hybrid"))]
 pub use {
-    dioxus_renderer::{Features, Limits},
+    dioxus_renderer::{Backends, Features, Limits},
     wgpu_context::DeviceHandle,
 };
 
@@ -227,6 +227,7 @@ pub fn launch_cfg_with_props<P: Clone + 'static, M: 'static>(
         alpha_mode: config.alpha_mode,
         features,
         limits,
+        backends: None,
     });
     #[cfg(not(any(feature = "vello", feature = "vello-hybrid")))]
     let renderer = DioxusNativeWindowRenderer::with_options(RendererOptions {

@@ -10,7 +10,7 @@ cfg_if::cfg_if! {
     if #[cfg(feature = "vello")] {
         pub use anyrender_vello::{
             VelloRendererOptions as InnerRendererOptions, VelloWindowRenderer as InnerRenderer,
-            wgpu::{Features, Limits},
+            wgpu::{Backends, Features, Limits},
         };
     } else if #[cfg(feature = "vello-cpu-base")] {
         use anyrender_vello_cpu::VelloCpuWindowRenderer as InnerRenderer;
@@ -21,7 +21,7 @@ cfg_if::cfg_if! {
     } else if #[cfg(feature = "vello-hybrid")] {
         pub use anyrender_vello_hybrid::{
             VelloHybridRendererOptions as InnerRendererOptions, VelloHybridWindowRenderer as InnerRenderer,
-            wgpu::{Features, Limits},
+            wgpu::{Backends, Features, Limits},
         };
     } else {
         compile_error!("At least one renderer feature must be enabled");
@@ -31,7 +31,7 @@ cfg_if::cfg_if! {
 /// Renderer configuration for [`DioxusNativeWindowRenderer`].
 ///
 /// Fields that only apply to the GPU-backed `vello`/`vello-hybrid` renderers
-/// (`features`/`limits`) are only present when one of those features is enabled.
+/// (`features`/`limits`/`backends`) are only present when one of those features is enabled.
 #[derive(Default)]
 pub struct RendererOptions {
     /// Base (background) color used to clear each frame.
@@ -44,6 +44,11 @@ pub struct RendererOptions {
     /// wgpu limits to request from the GPU adapter.
     #[cfg(any(feature = "vello", feature = "vello-hybrid"))]
     pub limits: Option<Limits>,
+    /// wgpu backends to probe for an adapter; `None` leaves wgpu's default (every backend the
+    /// build supports). `WGPU_BACKEND` wins when set, and when the named backends find no
+    /// adapter the renderer falls back once to the default set.
+    #[cfg(any(feature = "vello", feature = "vello-hybrid"))]
+    pub backends: Option<Backends>,
 }
 
 #[derive(Clone)]
@@ -75,7 +80,7 @@ impl DioxusNativeWindowRenderer {
     ///
     /// `base_color` and `alpha_mode` are forwarded to the active renderer via
     /// [`anyrender::RendererConfig`]; renderers that don't support a particular
-    /// option simply ignore it. `features`/`limits` are only applied by the
+    /// option simply ignore it. `features`/`limits`/`backends` are only applied by the
     /// GPU-backed `vello`/`vello-hybrid` renderers.
     pub fn with_options(options: RendererOptions) -> Self {
         let mut config = RendererConfig::default();
@@ -90,6 +95,9 @@ impl DioxusNativeWindowRenderer {
                 }
                 if let Some(limits) = options.limits {
                     inner_options = inner_options.limits(limits);
+                }
+                if let Some(backends) = options.backends {
+                    inner_options = inner_options.backends(backends);
                 }
                 let inner_renderer = InnerRenderer::with_options(inner_options);
             } else {
