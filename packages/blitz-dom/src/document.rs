@@ -11,6 +11,7 @@ use crate::scrolling::ScrollAnimationState;
 use crate::selection::TextSelection;
 use crate::stylo_device::{DeviceChanges, make_device};
 use crate::stylo_to_cursor_icon::stylo_to_cursor_icon;
+use crate::tab_order::FocusDirection;
 use crate::traversal::TreeTraverser;
 use crate::url::DocumentUrl;
 use crate::util::ImageType;
@@ -1666,19 +1667,16 @@ impl BaseDocument {
         }
     }
 
+    /// Move focus to the next focussable node in the document. A focussed sub-document host
+    /// passes the focus on through the sub-document's own focussable nodes first.
     pub fn focus_next_node(&mut self) -> Option<NodeId> {
-        let focussed_node_id = self.get_focussed_node_id()?;
-        let id = self.next_node(&self.nodes[focussed_node_id], |node| node.is_focussable())?;
-        self.set_focus_to(id);
-        Some(id)
+        self.focus_by_tab(FocusDirection::Forward)
     }
 
-    /// Move focus to the previous focussable node in the document
+    /// Move focus to the previous focussable node in the document, mirroring
+    /// [`focus_next_node`](Self::focus_next_node)
     pub fn focus_prev_node(&mut self) -> Option<NodeId> {
-        let focussed_node_id = self.get_focussed_node_id()?;
-        let id = self.prev_node(&self.nodes[focussed_node_id], |node| node.is_focussable())?;
-        self.set_focus_to(id);
-        Some(id)
+        self.focus_by_tab(FocusDirection::Backward)
     }
 
     /// Clear the focussed node. Silent: no `blur` is raised (a host that clears the focus on
