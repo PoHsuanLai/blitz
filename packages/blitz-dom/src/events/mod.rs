@@ -155,6 +155,10 @@ pub(crate) fn handle_dom_event<F: FnMut(DomEvent)>(
             sub_doc.handle_ui_event(ui_event);
         }
 
+        // What the sub-document's own wheel scroll left over continues with the host's
+        // scroll ancestors, as for a wheel over any node that cannot scroll further.
+        let leftover = sub_doc.inner_mut().take_unconsumed_wheel();
+
         if set_focus {
             generate_focus_events(
                 doc,
@@ -166,6 +170,9 @@ pub(crate) fn handle_dom_event<F: FnMut(DomEvent)>(
         }
 
         if ends_after_forwarding(&event.data) {
+            if doc.chain_wheel_leftover(target_node_id, leftover, &mut dispatch_event) {
+                doc.shell_provider.request_redraw();
+            }
             return;
         }
     }

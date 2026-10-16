@@ -286,6 +286,10 @@ pub struct BaseDocument {
     pub(crate) scrollbar_activity: HashMap<NodeId, Instant>,
     /// Whether and what kind of scroll animation is currently in progress
     pub(crate) scroll_animation: ScrollAnimationState,
+    /// The part of the last wheel scroll that no scroller in this document could consume,
+    /// in scroll offset terms. A document hosting this one takes it with
+    /// [`take_unconsumed_wheel`](Self::take_unconsumed_wheel) to continue the scroll.
+    pub(crate) unconsumed_wheel: crate::Point<f64>,
 
     /// Text selection state (for non-input text)
     pub(crate) text_selection: TextSelection,
@@ -515,6 +519,7 @@ impl BaseDocument {
             hovered_scrollbar: None,
             scrollbar_activity: HashMap::new(),
             scroll_animation: ScrollAnimationState::None,
+            unconsumed_wheel: crate::Point::ZERO,
             text_selection: TextSelection::default(),
         };
 
@@ -1992,6 +1997,12 @@ impl BaseDocument {
         let x = pos.x + self.viewport_scroll.x as f32;
         let y = pos.y + self.viewport_scroll.y as f32;
         self.set_hover_to(x, y)
+    }
+
+    /// Take (and reset) the part of the last wheel scroll that nothing in this document
+    /// could consume.
+    pub(crate) fn take_unconsumed_wheel(&mut self) -> crate::Point<f64> {
+        std::mem::replace(&mut self.unconsumed_wheel, crate::Point::ZERO)
     }
 
     pub fn get_hover_node_id(&self) -> Option<NodeId> {

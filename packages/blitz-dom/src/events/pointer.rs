@@ -856,13 +856,15 @@ pub(crate) fn handle_wheel<F: FnMut(DomEvent)>(
         BlitzWheelDelta::Pixels(x, y) => (x, y),
     };
 
-    let has_changed = doc.scroll_chain_by(
+    let outcome = doc.scroll_chain_outcome(
         doc.get_hover_node_id(),
         scroll_x,
         scroll_y,
         &mut dispatch_event,
     );
-    if has_changed {
+    // A document hosting this one continues the scroll with what was left over
+    doc.unconsumed_wheel = outcome.unconsumed;
+    if outcome.changed {
         doc.shell_provider.request_redraw();
     }
 }
