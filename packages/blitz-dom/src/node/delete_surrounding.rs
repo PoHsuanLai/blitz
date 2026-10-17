@@ -97,7 +97,8 @@ mod tests {
     #[test]
     fn lens_clamps_and_rounds_inward() {
         // (text, selection, asked before, asked after, expected before, expected after)
-        let cases: [(&str, Range<usize>, usize, usize, usize, usize); 10] = [
+        type Case = (&'static str, Range<usize>, usize, usize, usize, usize);
+        let cases: [Case; 10] = [
             // ASCII
             ("abcdef", 3..3, 1, 1, 1, 1),
             ("abcdef", 3..3, 0, 0, 0, 0),
@@ -163,7 +164,15 @@ mod tests {
     #[test]
     fn deletes_around_the_cursor() {
         // (text, selection, before, after, resulting text, resulting selection)
-        let cases: [(&str, Range<usize>, usize, usize, &str, Range<usize>); 7] = [
+        type Case = (
+            &'static str,
+            Range<usize>,
+            usize,
+            usize,
+            &'static str,
+            Range<usize>,
+        );
+        let cases: [Case; 7] = [
             ("abcdef", 3..3, 1, 1, "abef", 2..2),
             ("abcdef", 3..3, 2, 0, "adef", 1..1),
             // Past the ends
