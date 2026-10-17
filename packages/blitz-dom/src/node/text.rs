@@ -768,6 +768,14 @@ impl TextInputData {
         layout_ctx: &mut LayoutContext<TextBrush>,
         event: BlitzImeEvent,
     ) -> Option<GeneratedTextInputEvent> {
+        if let BlitzImeEvent::DeleteSurrounding {
+            before_bytes,
+            after_bytes,
+        } = event
+        {
+            return self.delete_surrounding(font_ctx, layout_ctx, before_bytes, after_bytes);
+        }
+
         let editor = &mut self.editor;
         let mut driver = editor.driver(font_ctx, layout_ctx);
 
@@ -792,15 +800,8 @@ impl TextInputData {
                 }
                 Some(GeneratedTextInputEvent::PreEditChange)
             }
-            BlitzImeEvent::DeleteSurrounding {
-                before_bytes,
-                after_bytes,
-            } => {
-                let _ = before_bytes;
-                let _ = after_bytes;
-                // TODO
-                None
-            }
+            // Handled above, before the driver borrows the editor.
+            BlitzImeEvent::DeleteSurrounding { .. } => None,
         }
     }
 }
