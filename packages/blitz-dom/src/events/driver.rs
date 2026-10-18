@@ -1,4 +1,5 @@
 use crate::Document;
+use crate::events::DragMode;
 use blitz_traits::events::{
     BlitzPointerEvent, BlitzPointerId, DomEvent, DomEventData, EventState, Point, PointerCoords,
     UiEvent,
@@ -306,6 +307,15 @@ impl<'doc, Handler: EventHandler> EventDriver<'doc, Handler> {
 
         if !event_state.is_cancelled() {
             self.run_default_action(&mut ptr_event);
+        } else if matches!(ptr_event.data, DomEventData::PointerDown(_)) {
+            // A press whose default action was cancelled (`mousedown` + `preventDefault`, as a
+            // menu item does) skips `handle_pointerdown`, so nothing reset what the last press
+            // left. Without this its position stayed where an earlier press was, the next move
+            // with the button held read as a drag from there, and the drag (a text selection)
+            // took the click away from the item. A cancelled press starts no selection and no drag.
+            let mut doc = self.doc.inner_mut();
+            doc.drag_mode = DragMode::None;
+            doc.mousedown_node_id = None;
         }
         self.process_queue();
     }
