@@ -29,4 +29,7 @@ pub use stylo_data::ComputedStyleRef;
 pub use surrounding_text::{SURROUNDING_TEXT_MAX_BYTES, SurroundingText};
 #[cfg(feature = "svg")]
 pub use svg::{SvgImageData, SvgIntrinsicDimensions};
-pub use text::{GeneratedTextInputEvent, TextBrush, TextInputData, TextLayout};
+pub use text::{
+    GeneratedTextInputEvent, TextBrush, TextInputData, TextLayout, TextOverflowCut,
+    TextOverflowMarker,
+};

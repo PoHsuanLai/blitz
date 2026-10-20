@@ -702,6 +702,12 @@ impl BaseDocument {
         }
         .maybe_max(container_pb.sum_axes().map(Some));
 
+        // Lines that overflow a clipping content box may end with a `text-overflow` marker.
+        let content_box_width =
+            (final_size.width - content_box_inset.horizontal_axis_sum()).max(0.0) * scale;
+        inline_layout.text_overflow =
+            self.compute_text_overflow(node_id, &inline_layout.layout, content_box_width);
+
         let container_direction = self.nodes[node_id].layout_style().direction();
 
         // Store sizes and positions of inline boxes

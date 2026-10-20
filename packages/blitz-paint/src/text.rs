@@ -1,5 +1,9 @@
 use anyrender::PaintScene;
-use blitz_dom::{BaseDocument, NodeId, node::TextBrush, util::ToColorColor};
+use blitz_dom::{
+    BaseDocument, NodeId,
+    node::{TextBrush, TextOverflowMarker},
+    util::ToColorColor,
+};
 use kurbo::{Affine, BezPath, Cap, Circle, Rect, Stroke};
 use parley::{Affinity, Cursor, Layout, Line, PositionedLayoutItem, Selection};
 use peniko::Fill;
@@ -538,6 +542,68 @@ fn flush_line_decorations(
     }
 }
 
+/// The synthetic emboldening applied to glyphs drawn at `font_size` (device pixels).
+fn embolden(font_size: f32, scale: f64) -> kurbo::Vec2 {
+    if FONT_EMBOLDEN_ENABLED {
+        let fs = font_size as f64 / scale;
+        kurbo::Vec2::new((0.015125 * fs).min(0.3), (0.0121 * fs).min(0.3))
+    } else {
+        kurbo::Vec2::default()
+    }
+}
+
+/// Draw a `text-overflow` marker starting at `x` on a line whose baseline is `baseline`.
+/// The marker is painted in its block container's colour and is not decorated.
+fn draw_text_overflow_marker(
+    scene: &mut impl PaintScene,
+    marker: &Layout<TextBrush>,
+    doc: &BaseDocument,
+    transform: Affine,
+    scale: f64,
+    x: f32,
+    baseline: f32,
+) {
+    let Some(marker_line) = marker.lines().next() else {
+        return;
+    };
+    let dy = baseline - marker_line.metrics().baseline;
+    for item in marker_line.items() {
+        let PositionedLayoutItem::GlyphRun(glyph_run) = item else {
+            continue;
+        };
+        let run = glyph_run.run();
+        let color = doc
+            .get_node(glyph_run.style().brush.id)
+            .and_then(|node| node.primary_styles())
+            .map(|styles| styles.get_inherited_text().color.as_color_color())
+            .unwrap_or(Color::BLACK);
+        let glyph_xform = run
+            .synthesis()
+            .skew()
+            .map(|angle| Affine::skew(angle.to_radians().tan() as f64, 0.0));
+        scene.draw_glyphs(
+            run.font(),
+            run.font_size(),
+            !FONT_EMBOLDEN_ENABLED, // hint
+            run.normalized_coords(),
+            embolden(run.font_size(), scale),
+            Fill::NonZero,
+            &anyrender::Paint::from(color),
+            1.0, // alpha
+            transform,
+            glyph_xform,
+            glyph_run.positioned_glyphs().map(|glyph| anyrender::Glyph {
+                id: glyph.id as _,
+                x: glyph.x + x,
+                y: glyph.y + dy,
+            }),
+        );
+    }
+}
+
+/// Draw the glyphs and decorations of `lines`. With a `text_overflow` marker, lines that
+/// overflow are cut where it says and end with the marker.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn stroke_text<'a>(
     scene: &mut impl PaintScene,
     lines: impl Iterator<Item = Line<'a, TextBrush>>,
@@ -546,6 +612,7 @@ pub(crate) fn stroke_text<'a>(
     scale: f64,
     inline_root_id: NodeId,
     context: &mut DrawTextContext,
+    text_overflow: Option<&TextOverflowMarker>,
 ) {
     let DrawTextContext {
         stack,
@@ -564,7 +631,11 @@ pub(crate) fn stroke_text<'a>(
     // ancestor chain on every run, we cache each node's resolved values here and,
     // for each run, only resolve styles for the nodes newly descended into (popping
     // as we ascend). `path_scratch` is a reusable buffer for the run's node path.
-    for line in lines {
+    for (line_index, line) in lines.enumerate() {
+        let cut = text_overflow.and_then(|marker| marker.lines.get(line_index).copied().flatten());
+        // Glyphs of this line still to draw before the cut.
+        let mut glyphs_left = cut.map_or(usize::MAX, |cut| cut.glyphs_kept);
+
         // Decorations accumulated for this line, keyed by decorating box, so each box is
         // painted once (spanning all its runs) using its own font — matching Firefox, which
         // draws one decoration per box rather than one stepped segment per differently-sized
@@ -573,6 +644,16 @@ pub(crate) fn stroke_text<'a>(
 
         for item in line.items() {
             if let PositionedLayoutItem::GlyphRun(glyph_run) = item {
+                if glyphs_left == 0 {
+                    continue;
+                }
+                let glyphs_drawn = if cut.is_some() {
+                    let drawn = glyphs_left.min(glyph_run.glyphs().count());
+                    glyphs_left -= drawn;
+                    drawn
+                } else {
+                    usize::MAX
+                };
                 let run = glyph_run.run();
                 let font = run.font();
                 let font_size = run.font_size();
@@ -613,29 +694,25 @@ pub(crate) fn stroke_text<'a>(
                 // inherits, so the innermost inline element already carries the right value.
                 let text_color = stack.last().map(|e| e.text_color).unwrap_or(Color::BLACK);
 
-                let embolden = if FONT_EMBOLDEN_ENABLED {
-                    let fs = font_size as f64 / scale;
-                    kurbo::Vec2::new((0.015125 * fs).min(0.3), (0.0121 * fs).min(0.3))
-                } else {
-                    kurbo::Vec2::default()
-                };
-
                 scene.draw_glyphs(
                     font,
                     font_size,
                     !FONT_EMBOLDEN_ENABLED, // hint
                     run.normalized_coords(),
-                    embolden,
+                    embolden(font_size, scale),
                     Fill::NonZero,
                     &anyrender::Paint::from(text_color),
                     1.0, // alpha
                     transform,
                     glyph_xform,
-                    glyph_run.positioned_glyphs().map(|glyph| anyrender::Glyph {
-                        id: glyph.id as _,
-                        x: glyph.x,
-                        y: glyph.y,
-                    }),
+                    glyph_run
+                        .positioned_glyphs()
+                        .take(glyphs_drawn)
+                        .map(|glyph| anyrender::Glyph {
+                            id: glyph.id as _,
+                            x: glyph.x,
+                            y: glyph.y,
+                        }),
                 );
 
                 // Accumulate this run's contribution to each decorating box on its ancestor
@@ -655,7 +732,11 @@ pub(crate) fn stroke_text<'a>(
                 };
                 let run_node_id = style.brush.id;
                 let run_x0 = glyph_run.offset() as f64;
-                let run_x1 = run_x0 + glyph_run.advance() as f64;
+                let mut run_x1 = run_x0 + glyph_run.advance() as f64;
+                // Decorations stop at the cut.
+                if let Some(cut) = cut {
+                    run_x1 = run_x1.min(cut.marker_x as f64);
+                }
 
                 for entry in stack.iter() {
                     if entry.decoration.is_none() {
@@ -690,6 +771,18 @@ pub(crate) fn stroke_text<'a>(
             }
         }
 
+        if let (Some(cut), Some(marker)) = (cut, text_overflow) {
+            draw_text_overflow_marker(
+                scene,
+                &marker.layout,
+                doc,
+                transform,
+                scale,
+                cut.marker_x,
+                line.metrics().baseline,
+            );
+        }
+
         flush_line_decorations(scene, transform, scale, deco_boxes, win_ascent_ratios);
     }
 }
@@ -711,4 +804,118 @@ pub(crate) fn draw_text_selection(
         let rect = kurbo::Rect::new(rect.x0, rect.y0, rect.x1, rect.y1);
         scene.fill(Fill::NonZero, transform, SELECTION_COLOR, None, &rect);
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::PositionedLayoutItem;
+    use anyrender::recording::{RenderCommand, Scene};
+    use blitz_dom::{Attribute, BaseDocument, DocumentConfig, NodeId, qual_name};
+    use blitz_traits::shell::{ColorScheme, Viewport};
+
+    /// Paint `<div style="{div_style}">{text}</div>` at 2x scale and return the glyph ids
+    /// and x positions (in the div's content-box coordinates) of each glyph run drawn,
+    /// with the document and the div.
+    fn paint(div_style: &str, text: &str) -> (Vec<Vec<(u32, f32)>>, BaseDocument, NodeId) {
+        let mut doc = BaseDocument::new(DocumentConfig {
+            viewport: Some(Viewport::new(800, 600, 2.0, ColorScheme::Light)),
+            ..Default::default()
+        });
+        let root_id = doc.root_node().id;
+        let style = |value: &str| Attribute {
+            name: qual_name!("style"),
+            value: value.to_string(),
+        };
+        let mut mutator = doc.mutate();
+        // No user-agent stylesheet is loaded, so every element is styled as a block here.
+        let html = mutator.create_element(qual_name!("html"), vec![style("display:block")]);
+        let body = mutator.create_element(qual_name!("body"), vec![style("display:block")]);
+        let div_style = format!("display:block; {div_style}");
+        let div = mutator.create_element(qual_name!("div"), vec![style(&div_style)]);
+        let text = mutator.create_text_node(text);
+        mutator.append_children(div, &[text]);
+        mutator.append_children(body, &[div]);
+        mutator.append_children(html, &[body]);
+        mutator.append_children(root_id, &[html]);
+        drop(mutator);
+        doc.resolve(0.0);
+
+        let mut scene = Scene::new();
+        crate::paint_scene(&mut scene, &mut doc, 2.0, 800, 600, 0, 0);
+        let runs = scene
+            .commands
+            .iter()
+            .filter_map(|command| match command {
+                RenderCommand::GlyphRun(run) => {
+                    Some(run.glyphs.iter().map(|g| (g.id, g.x)).collect())
+                }
+                _ => None,
+            })
+            .collect();
+        (runs, doc, div)
+    }
+
+    #[test]
+    fn overflowing_text_is_cut_and_ends_with_the_marker() {
+        let (runs, doc, div) = paint(
+            "width:100px; overflow:hidden; white-space:nowrap; text-overflow:ellipsis",
+            "A label far too long to fit in its box",
+        );
+        let text_layout = doc
+            .get_node(div)
+            .unwrap()
+            .element_data()
+            .unwrap()
+            .inline_layout_data
+            .as_deref()
+            .unwrap();
+        if text_layout.layout.width() == 0.0 {
+            eprintln!("skipping: no usable font (text measures 0x0)");
+            return;
+        }
+        let marker = text_layout.text_overflow.as_ref().expect("a marker");
+        let cut = marker.lines[0].expect("the line is cut");
+
+        // The kept glyphs, then the marker: one glyph at the cut, inside the box.
+        let (marker_run, text_runs) = runs.split_last().expect("glyphs were drawn");
+        let text_glyphs: Vec<_> = text_runs.iter().flatten().collect();
+        assert_eq!(text_glyphs.len(), cut.glyphs_kept);
+        assert!(text_glyphs.iter().all(|(_, x)| *x < cut.marker_x));
+        assert_eq!(marker_run.len(), 1);
+        let (marker_glyph, marker_x) = marker_run[0];
+        assert_ne!(marker_glyph, 0);
+        assert_eq!(marker_x, cut.marker_x);
+        assert!(marker_x + marker.layout.width() <= 200.0);
+    }
+
+    #[test]
+    fn clipped_text_is_drawn_whole() {
+        let (runs, doc, div) = paint(
+            "width:100px; overflow:hidden; white-space:nowrap; text-overflow:clip",
+            "A label far too long to fit in its box",
+        );
+        let layout = &doc
+            .get_node(div)
+            .unwrap()
+            .element_data()
+            .unwrap()
+            .inline_layout_data
+            .as_deref()
+            .unwrap()
+            .layout;
+        if layout.width() == 0.0 {
+            eprintln!("skipping: no usable font (text measures 0x0)");
+            return;
+        }
+        let laid_out: usize = layout
+            .lines()
+            .flat_map(|line| line.items().collect::<Vec<_>>())
+            .map(|item| match item {
+                PositionedLayoutItem::GlyphRun(run) => run.glyphs().count(),
+                PositionedLayoutItem::InlineBox(_) => 0,
+            })
+            .sum();
+        let drawn: usize = runs.iter().map(Vec::len).sum();
+        assert_eq!(drawn, laid_out);
+    }
 }

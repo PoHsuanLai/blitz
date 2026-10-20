@@ -26,6 +26,34 @@ pub struct TextLayout {
     pub text: String,
     pub content_widths: Option<ContentWidths>,
     pub layout: parley::layout::Layout<TextBrush>,
+    /// The `text-overflow` marker for lines that overflow the content box, set by inline
+    /// layout when the inline root clips its content and asks for a marker.
+    pub text_overflow: Option<TextOverflowMarker>,
+}
+
+/// A `text-overflow` marker (e.g. `…`) and where it cuts each line.
+///
+/// Truncation is a rendering effect: the layout keeps the full text (for hit testing,
+/// selection and scrollable overflow), and paint draws only the glyphs before the cut,
+/// followed by the marker.
+#[derive(Clone, Default)]
+pub struct TextOverflowMarker {
+    /// The marker laid out on a single line in the block container's style. Its brush is
+    /// the block container, whose colour paint uses.
+    pub layout: parley::layout::Layout<TextBrush>,
+    /// One entry per line of the inline layout: `None` when the line fits.
+    pub lines: Vec<Option<TextOverflowCut>>,
+}
+
+/// Where a line that overflows its content box is cut.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct TextOverflowCut {
+    /// How many glyphs of the line (in visual order, across its glyph runs) are kept.
+    /// The cut always falls between clusters.
+    pub glyphs_kept: usize,
+    /// The x at which the marker starts (the end of the kept content), in the same
+    /// coordinates as the line's glyphs.
+    pub marker_x: f32,
 }
 
 impl TextLayout {
