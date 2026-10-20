@@ -788,20 +788,29 @@ pub(crate) fn stroke_text<'a>(
 }
 
 /// Draw selection highlight rectangles for the given byte range in a layout.
-/// Uses Parley's Selection type for accurate geometry calculation.
+/// Uses Parley's Selection type for accurate geometry calculation. With a `text_overflow`
+/// marker, the highlight stops where cut lines are cut, as the text after it is hidden.
 pub(crate) fn draw_text_selection(
     scene: &mut impl PaintScene,
     layout: &Layout<TextBrush>,
     transform: Affine,
     selection_start: usize,
     selection_end: usize,
+    text_overflow: Option<&TextOverflowMarker>,
 ) {
     let anchor = Cursor::from_byte_index(layout, selection_start, Affinity::Downstream);
     let focus = Cursor::from_byte_index(layout, selection_end, Affinity::Downstream);
     let selection = Selection::new(anchor, focus);
 
-    selection.geometry_with(layout, |rect, _line_idx| {
-        let rect = kurbo::Rect::new(rect.x0, rect.y0, rect.x1, rect.y1);
+    selection.geometry_with(layout, |rect, line_idx| {
+        let mut rect = kurbo::Rect::new(rect.x0, rect.y0, rect.x1, rect.y1);
+        let cut = text_overflow.and_then(|marker| marker.lines.get(line_idx).copied().flatten());
+        if let Some(cut) = cut {
+            rect.x1 = rect.x1.min(cut.marker_x as f64);
+            if rect.x1 <= rect.x0 {
+                return;
+            }
+        }
         scene.fill(Fill::NonZero, transform, SELECTION_COLOR, None, &rect);
     });
 }
@@ -812,6 +821,23 @@ mod tests {
     use anyrender::recording::{RenderCommand, Scene};
     use blitz_dom::{Attribute, BaseDocument, DocumentConfig, NodeId, qual_name};
     use blitz_traits::shell::{ColorScheme, Viewport};
+    use kurbo::{Affine, Shape as _};
+    use std::io::Write as _;
+
+    /// Without a usable font text measures 0x0, which would make these tests vacuous, so
+    /// they skip. The skip is written straight to stderr, past the test harness's output
+    /// capture, so it shows.
+    fn no_font(layout: &parley::Layout<blitz_dom::node::TextBrush>) -> bool {
+        let skip = layout.width() == 0.0;
+        if skip {
+            let test = std::thread::current().name().unwrap_or("test").to_string();
+            let _ = writeln!(
+                std::io::stderr(),
+                "{test}: SKIPPED, no usable font (text measures 0x0)"
+            );
+        }
+        skip
+    }
 
     /// Paint `<div style="{div_style}">{text}</div>` at 2x scale and return the glyph ids
     /// and x positions (in the div's content-box coordinates) of each glyph run drawn,
@@ -869,8 +895,7 @@ mod tests {
             .inline_layout_data
             .as_deref()
             .unwrap();
-        if text_layout.layout.width() == 0.0 {
-            eprintln!("skipping: no usable font (text measures 0x0)");
+        if no_font(&text_layout.layout) {
             return;
         }
         let marker = text_layout.text_overflow.as_ref().expect("a marker");
@@ -903,8 +928,7 @@ mod tests {
             .as_deref()
             .unwrap()
             .layout;
-        if layout.width() == 0.0 {
-            eprintln!("skipping: no usable font (text measures 0x0)");
+        if no_font(layout) {
             return;
         }
         let laid_out: usize = layout
@@ -917,5 +941,52 @@ mod tests {
             .sum();
         let drawn: usize = runs.iter().map(Vec::len).sum();
         assert_eq!(drawn, laid_out);
+    }
+
+    #[test]
+    fn selection_stops_at_the_cut() {
+        let text = "A label far too long to fit in its box";
+        let (_, doc, div) = paint(
+            "width:100px; overflow:hidden; white-space:nowrap; text-overflow:ellipsis",
+            text,
+        );
+        let text_layout = doc
+            .get_node(div)
+            .unwrap()
+            .element_data()
+            .unwrap()
+            .inline_layout_data
+            .as_deref()
+            .unwrap();
+        if no_font(&text_layout.layout) {
+            return;
+        }
+        let marker = text_layout.text_overflow.as_ref().expect("a marker");
+        let cut = marker.lines[0].expect("the line is cut");
+
+        let mut scene = Scene::new();
+        super::draw_text_selection(
+            &mut scene,
+            &text_layout.layout,
+            Affine::IDENTITY,
+            0,
+            text.len(),
+            Some(marker),
+        );
+        let rects: Vec<_> = scene
+            .commands
+            .iter()
+            .filter_map(|command| match command {
+                RenderCommand::Fill(fill) => Some(fill.shape.bounding_box()),
+                _ => None,
+            })
+            .collect();
+        assert!(!rects.is_empty(), "the kept text is highlighted");
+        for rect in rects {
+            assert!(
+                rect.x1 <= cut.marker_x as f64 + 1e-3,
+                "{rect:?} past the cut"
+            );
+        }
     }
 }

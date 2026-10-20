@@ -842,17 +842,6 @@ impl ElementCx<'_, '_> {
                 self.node.id,
             );
 
-            // Render text selection highlight (if any) using cached selection ranges
-            if let Some(&(sel_start, sel_end)) = self.context.selection_ranges.get(&self.node.id) {
-                crate::text::draw_text_selection(
-                    scene,
-                    &text_layout.layout,
-                    transform,
-                    sel_start,
-                    sel_end,
-                );
-            }
-
             // The `text-overflow` cut is fixed at layout time for unscrolled content, so a
             // horizontally scrolled container shows its full text instead.
             // TODO: move the cut with the scroll offset.
@@ -866,6 +855,18 @@ impl ElementCx<'_, '_> {
                 !is_scrolled(self.node.id)
                     && !(self.node.is_anonymous() && self.node.parent.is_some_and(is_scrolled))
             });
+
+            // Render text selection highlight (if any) using cached selection ranges
+            if let Some(&(sel_start, sel_end)) = self.context.selection_ranges.get(&self.node.id) {
+                crate::text::draw_text_selection(
+                    scene,
+                    &text_layout.layout,
+                    transform,
+                    sel_start,
+                    sel_end,
+                    text_overflow,
+                );
+            }
 
             // Render text
             let mut draw_text_context = self.context.draw_text_context.borrow_mut();
