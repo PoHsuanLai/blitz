@@ -962,9 +962,19 @@ fn create_text_editor(doc: &mut BaseDocument, input_element_id: NodeId, is_multi
     editor.set_scale(doc.viewport.scale_f64() as f32);
     editor.set_width(None);
 
+    // The field's text takes the element's font as a browser's does: its family, weight, style,
+    // width and features, not only its size, so a field set in a monospace face reads as one.
     let styles = editor.edit_styles();
     styles.retain(|_| false);
+    styles.insert(StyleProperty::FontFamily(parley_style.font_family));
     styles.insert(StyleProperty::FontSize(parley_style.font_size));
+    styles.insert(StyleProperty::FontWeight(parley_style.font_weight));
+    styles.insert(StyleProperty::FontStyle(parley_style.font_style));
+    styles.insert(StyleProperty::FontWidth(parley_style.font_width));
+    styles.insert(StyleProperty::FontVariations(parley_style.font_variations));
+    styles.insert(StyleProperty::FontFeatures(parley_style.font_features));
+    styles.insert(StyleProperty::LetterSpacing(parley_style.letter_spacing));
+    styles.insert(StyleProperty::WordSpacing(parley_style.word_spacing));
     styles.insert(StyleProperty::LineHeight(parley_style.line_height));
     styles.insert(StyleProperty::Brush(parley_style.brush));
 
