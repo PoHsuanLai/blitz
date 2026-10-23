@@ -56,6 +56,9 @@ pub struct TableCell {
     // kind: TableItemKind,
     node_id: NodeId,
     style: taffy::Style<Atom>,
+    /// Whether the cell's own `height` is the least its row is rather than its size, so that
+    /// its row is sized by its content (see `collect_table_cells`).
+    sized_by_row: bool,
 }
 
 /// Tracks the current column position while walking the table's cells, so that
@@ -526,6 +529,22 @@ fn collect_table_cells(
             let mut style = stylo_taffy::to_taffy_style(stylo_style);
             let col = cursor.next_free();
 
+            let mut sized_by_row = false;
+            // A cell's height is the least its row is, not a fixed height: a row grows to hold
+            // what its cells hold (CSS 2.1 §17.5.3). As a grid item a fixed height would hold the
+            // row to it and let the content spill over the rows below.
+            if style.size.height.tag() == taffy::CompactLength::LENGTH_TAG {
+                let height = style.size.height.value();
+                let min = style.min_size.height.into_raw();
+                let least = match min.tag() {
+                    taffy::CompactLength::LENGTH_TAG => min.value().max(height),
+                    _ => height,
+                };
+                style.min_size.height = style_helpers::length(least);
+                style.size.height = style_helpers::auto();
+                sized_by_row = true;
+            }
+
             if first_cell_border.is_none() {
                 *first_cell_border = Some(stylo_style.clone_border());
             }
@@ -611,7 +630,11 @@ fn collect_table_cells(
                 end: style_helpers::span(rowspan),
             };
             style.size.width = style_helpers::auto();
-            cells.push(TableCell { node_id, style });
+            cells.push(TableCell {
+                node_id,
+                style,
+                sized_by_row,
+            });
 
             cursor.place(colspan, rowspan);
         }
@@ -698,6 +721,15 @@ impl taffy::LayoutPartialTree for TableTreeWrapper<'_> {
     ) -> taffy::LayoutOutput {
         let cell = &self.ctx.cells[usize::from(node_id)];
         let node_id = crate::taffy_node_id(cell.node_id);
+        let mut inputs = inputs;
+        // Measured for its row by its content, its height being the least the row is (the grid
+        // item's minimum), once its width is the column's.
+        if cell.sized_by_row
+            && inputs.known_dimensions.height.is_none()
+            && inputs.known_dimensions.width.is_some()
+        {
+            inputs.sizing_mode = taffy::SizingMode::ContentSize;
+        }
         self.doc.compute_child_layout(node_id, inputs)
     }
 }
