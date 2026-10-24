@@ -59,6 +59,9 @@ pub struct TableCell {
     /// Whether the cell's own `width` is its column's preferred width rather than its size,
     /// so that it is measured by its content (see `collect_table_cells`).
     sized_by_column: bool,
+    /// Whether the cell's own `height` is the least its row is rather than its size, so that
+    /// its row is sized by its content (see `collect_table_cells`).
+    sized_by_row: bool,
 }
 
 /// Tracks the current column position while walking the table's cells, so that
@@ -529,6 +532,21 @@ fn collect_table_cells(
             let mut style = stylo_taffy::to_taffy_style(stylo_style);
             let col = cursor.next_free();
             let mut sized_by_column = false;
+            let mut sized_by_row = false;
+            // A cell's height is the least its row is, not a fixed height: a row grows to hold
+            // what its cells hold (CSS 2.1 §17.5.3). As a grid item a fixed height would hold the
+            // row to it and let the content spill over the rows below.
+            if style.size.height.tag() == taffy::CompactLength::LENGTH_TAG {
+                let height = style.size.height.value();
+                let min = style.min_size.height.into_raw();
+                let least = match min.tag() {
+                    taffy::CompactLength::LENGTH_TAG => min.value().max(height),
+                    _ => height,
+                };
+                style.min_size.height = style_helpers::length(least);
+                style.size.height = style_helpers::auto();
+                sized_by_row = true;
+            }
 
             if first_cell_border.is_none() {
                 *first_cell_border = Some(stylo_style.clone_border());
@@ -633,6 +651,7 @@ fn collect_table_cells(
                 node_id,
                 style,
                 sized_by_column,
+                sized_by_row,
             });
 
             cursor.place(colspan, rowspan);
@@ -722,7 +741,13 @@ impl taffy::LayoutPartialTree for TableTreeWrapper<'_> {
         let node_id = crate::taffy_node_id(cell.node_id);
         let mut inputs = inputs;
         // Measured for its column: by its content, as its own width is the column's to apply.
-        if cell.sized_by_column && inputs.known_dimensions.width.is_none() {
+        let for_column = cell.sized_by_column && inputs.known_dimensions.width.is_none();
+        // Measured for its row by its content, its height being the least the row is (the grid
+        // item's minimum), once its width is the column's.
+        let for_row = cell.sized_by_row
+            && inputs.known_dimensions.height.is_none()
+            && inputs.known_dimensions.width.is_some();
+        if for_column || for_row {
             inputs.sizing_mode = taffy::SizingMode::ContentSize;
         }
         self.doc.compute_child_layout(node_id, inputs)
