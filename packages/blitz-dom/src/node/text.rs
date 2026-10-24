@@ -271,6 +271,9 @@ impl TextInputData {
                 }
                 return Some(GeneratedTextInputEvent::Select);
             }
+            // On macOS AppKit turns this key into a standard key binding (`moveRight:` and the
+            // like), which moves the caret too: handling the key as well moved it twice.
+            #[cfg(not(target_os = "macos"))]
             _ if action == Some(TextAction::WordLeft) => {
                 if shift {
                     driver.select_word_left()
@@ -279,6 +282,9 @@ impl TextInputData {
                 }
                 return Some(GeneratedTextInputEvent::Select);
             }
+            // On macOS AppKit turns this key into a standard key binding (`moveWordRight:` and the
+            // like), which moves the caret too: handling the key as well moved it twice.
+            #[cfg(not(target_os = "macos"))]
             _ if action == Some(TextAction::WordRight) => {
                 if shift {
                     driver.select_word_right()
@@ -313,6 +319,9 @@ impl TextInputData {
                 driver.backdelete_word();
                 return Some(GeneratedTextInputEvent::Input);
             }
+            // On macOS AppKit turns this key into a standard key binding (`moveRight:` and the
+            // like), which moves the caret too: handling the key as well moved it twice.
+            #[cfg(not(target_os = "macos"))]
             Key::ArrowLeft => {
                 if shift {
                     driver.select_left()
@@ -321,6 +330,9 @@ impl TextInputData {
                 }
                 return Some(GeneratedTextInputEvent::Select);
             }
+            // On macOS AppKit turns this key into a standard key binding (`moveRight:` and the
+            // like), which moves the caret too: handling the key as well moved it twice.
+            #[cfg(not(target_os = "macos"))]
             Key::ArrowRight => {
                 if shift {
                     driver.select_right()
@@ -329,6 +341,9 @@ impl TextInputData {
                 }
                 return Some(GeneratedTextInputEvent::Select);
             }
+            // On macOS AppKit turns this key into a standard key binding (`moveRight:` and the
+            // like), which moves the caret too: handling the key as well moved it twice.
+            #[cfg(not(target_os = "macos"))]
             Key::ArrowUp => {
                 if shift {
                     driver.select_up()
@@ -337,6 +352,9 @@ impl TextInputData {
                 }
                 return Some(GeneratedTextInputEvent::Select);
             }
+            // On macOS AppKit turns this key into a standard key binding (`moveRight:` and the
+            // like), which moves the caret too: handling the key as well moved it twice.
+            #[cfg(not(target_os = "macos"))]
             Key::ArrowDown => {
                 if shift {
                     driver.select_down()
@@ -361,6 +379,9 @@ impl TextInputData {
                 }
                 return Some(GeneratedTextInputEvent::Select);
             }
+            // On macOS AppKit turns this key into a standard key binding (`moveRight:` and the
+            // like), which moves the caret too: handling the key as well moved it twice.
+            #[cfg(not(target_os = "macos"))]
             Key::Delete => {
                 driver.delete();
                 return Some(GeneratedTextInputEvent::Input);
