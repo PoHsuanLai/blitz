@@ -13,12 +13,14 @@ pub(super) enum KeyboardOrTextInputEvent {
     AppleStandardKeyBinding(SmolStr),
 }
 
+/// Runs a key's or a command's default action. Whether it edited (or moved the caret in) the
+/// focused text input.
 pub(crate) fn handle_key_or_input_event<F: FnMut(DomEvent)>(
     doc: &mut BaseDocument,
     target: NodeId,
     event: KeyboardOrTextInputEvent,
     mut dispatch_event: F,
-) {
+) -> bool {
     if let KeyboardOrTextInputEvent::KeyPress(event) = &event {
         if event.key == Key::Tab {
             let backwards = event.modifiers.contains(Modifiers::SHIFT);
@@ -35,7 +37,7 @@ pub(crate) fn handle_key_or_input_event<F: FnMut(DomEvent)>(
             );
             // The focus may also have moved on inside a sub-document, leaving the host's as it was
             doc.shell_provider.request_redraw();
-            return;
+            return false;
         }
 
         // Handle copy for text selection when no text input is focused
@@ -55,7 +57,7 @@ pub(crate) fn handle_key_or_input_event<F: FnMut(DomEvent)>(
             if !has_focused_text_input {
                 if let Some(text) = doc.get_selected_text() {
                     let _ = doc.shell_provider.set_clipboard_text(text);
-                    return;
+                    return false;
                 }
             }
         }
@@ -63,12 +65,12 @@ pub(crate) fn handle_key_or_input_event<F: FnMut(DomEvent)>(
 
     if let Some(node_id) = doc.focus_node_id {
         if target != node_id {
-            return;
+            return false;
         }
 
         let node = &mut doc.nodes[node_id];
         let Some(element_data) = node.element_data_mut() else {
-            return;
+            return false;
         };
 
         if let Some(input_data) = element_data.text_input_data_mut() {
@@ -92,9 +94,11 @@ pub(crate) fn handle_key_or_input_event<F: FnMut(DomEvent)>(
 
             if let Some(generated_event) = generated_event {
                 doc.apply_generated_text_input_event(node_id, generated_event, dispatch_event);
+                return true;
             }
         }
     }
+    false
 }
 
 impl BaseDocument {

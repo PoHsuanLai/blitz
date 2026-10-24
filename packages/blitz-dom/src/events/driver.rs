@@ -247,19 +247,22 @@ impl<'doc, Handler: EventHandler> EventDriver<'doc, Handler> {
                 self.handle_dom_event(DomEvent::new(target, DomEventData::Wheel(data)))
             }
             UiEvent::KeyUp(data) => {
+                self.doc.inner_mut().held_key_commands.clear();
                 self.handle_dom_event(DomEvent::new(target, DomEventData::KeyUp(data)))
             }
             UiEvent::KeyDown(data) => {
-                self.handle_dom_event(DomEvent::new(target, DomEventData::KeyDown(data)))
+                self.handle_dom_event(DomEvent::new(target, DomEventData::KeyDown(data)));
+                // A cancelled keydown runs no default action: its commands go with it.
+                self.doc.inner_mut().held_key_commands.clear();
             }
             UiEvent::Ime(data) => {
                 self.handle_dom_event(DomEvent::new(target, DomEventData::Ime(data)))
             }
+            // AppKit sends the command it made of a key before the key itself: it waits for the
+            // key's keydown, whose default action it is, so a handler that cancels the keydown
+            // (Enter in a field that submits) cancels it too.
             UiEvent::AppleStandardKeybinding(data) => {
-                let mut dom_event =
-                    DomEvent::new(target, DomEventData::AppleStandardKeybinding(data));
-                self.run_default_action(&mut dom_event);
-                self.process_queue();
+                self.doc.inner_mut().held_key_commands.push(data);
             }
         };
 

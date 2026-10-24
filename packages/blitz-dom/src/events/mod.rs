@@ -125,6 +125,11 @@ pub(crate) fn handle_dom_event<F: FnMut(DomEvent)>(
     mut dispatch_event: F,
 ) {
     let target_node_id = event.target;
+    // The commands AppKit made of a key come before it; they go with its keydown.
+    let held_commands = match &event.data {
+        DomEventData::KeyDown(_) => std::mem::take(&mut doc.held_key_commands),
+        _ => Vec::new(),
+    };
     let node = &mut doc.nodes[target_node_id];
     let pos = node.absolute_position(0.0, 0.0);
 
@@ -152,6 +157,9 @@ pub(crate) fn handle_dom_event<F: FnMut(DomEvent)>(
         let ui_event = map_dom_event_to_ui_event(event, pos, viewport_scroll);
 
         if let Some(ui_event) = ui_event {
+            for command in held_commands.iter().cloned() {
+                sub_doc.handle_ui_event(UiEvent::AppleStandardKeybinding(command));
+            }
             sub_doc.handle_ui_event(ui_event);
         }
 
@@ -246,12 +254,26 @@ pub(crate) fn handle_dom_event<F: FnMut(DomEvent)>(
             handle_click(doc, target_node_id, event, &mut dispatch_event);
         }
         DomEventData::KeyDown(event) => {
-            handle_key_or_input_event(
-                doc,
-                target_node_id,
-                KeyboardOrTextInputEvent::KeyPress(event.clone()),
-                dispatch_event,
-            );
+            // The key's commands are its default action first; a key whose command edited the
+            // text input does not edit it again (on macOS Return is both `insertNewline:` and
+            // Enter, and would add two lines).
+            let mut edited = false;
+            for command in held_commands {
+                edited |= handle_key_or_input_event(
+                    doc,
+                    target_node_id,
+                    KeyboardOrTextInputEvent::AppleStandardKeyBinding(command),
+                    &mut dispatch_event,
+                );
+            }
+            if !edited {
+                handle_key_or_input_event(
+                    doc,
+                    target_node_id,
+                    KeyboardOrTextInputEvent::KeyPress(event.clone()),
+                    dispatch_event,
+                );
+            }
         }
         DomEventData::KeyPress(_) => {
             // Do nothing (no default action)

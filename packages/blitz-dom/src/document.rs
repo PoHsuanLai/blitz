@@ -20,6 +20,7 @@ use crate::{
     DummyHtmlParserProvider, ElementData, EventDriver, HtmlParserProvider, Node, NodeData,
     NoopEventHandler, StyleThreading, TextActionResolver, TextNodeData,
 };
+use blitz_traits::SmolStr;
 use blitz_traits::devtools::DevtoolSettings;
 use blitz_traits::events::{DomEvent, HitResult, UiEvent};
 use blitz_traits::navigation::{DummyNavigationProvider, NavigationProvider};
@@ -331,6 +332,11 @@ pub struct BaseDocument {
     /// event driver drains them). The event driver dispatches them in order.
     pub(crate) pending_focus_events: Vec<DomEvent>,
 
+    /// The commands AppKit made of the key being pressed (`insertNewline:` for Return), which
+    /// reach the document before the key does. They are the key's default action, run once its
+    /// `keydown` is not cancelled.
+    pub(crate) held_key_commands: Vec<SmolStr>,
+
     /// Nodes that contain custom widgets
     #[cfg(feature = "custom-widget")]
     pub(crate) custom_widget_nodes: HashSet<NodeId>,
@@ -493,6 +499,7 @@ impl BaseDocument {
             iframe_loads: HashMap::new(),
 
             pending_focus_events: Vec::new(),
+            held_key_commands: Vec::new(),
 
             #[cfg(feature = "custom-widget")]
             custom_widget_nodes: HashSet::new(),
