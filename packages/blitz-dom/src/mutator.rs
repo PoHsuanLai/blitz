@@ -873,18 +873,23 @@ impl<'doc> DocumentMutator<'doc> {
             self.doc.has_canvas = self.doc.compute_has_canvas();
         }
 
-        if let Some(id) = self.title_node {
-            let title = self.doc.nodes[id].text_content();
+        // A node queued below may have been dropped since, in the same batch: it is skipped.
+        if let Some(node) = self.title_node.and_then(|id| self.doc.get_node(id)) {
+            let title = node.text_content();
             self.doc.shell_provider.set_window_title(title);
         }
 
         // Add/Update inline stylesheets (<style> elements)
         for id in self.style_nodes.drain() {
-            self.doc.process_style_element(id);
+            if self.doc.get_node(id).is_some() {
+                self.doc.process_style_element(id);
+            }
         }
 
         for id in self.form_nodes.drain() {
-            self.doc.reset_form_owner(id);
+            if self.doc.get_node(id).is_some() {
+                self.doc.reset_form_owner(id);
+            }
         }
 
         #[cfg(feature = "autofocus")]
@@ -1418,6 +1423,30 @@ mod test {
 
         document.resolve(0.0);
         assert_eq!(document.hit(10.0, 10.0).map(|hit| hit.node_id), Some(inner));
+    }
+
+    /// A panic in temor: a form control or a `<style>` added and then dropped before the mutator
+    /// flushed stayed queued, and the flush indexed its freed slot.
+    #[test]
+    fn a_node_dropped_before_the_flush_is_not_processed() {
+        let mut document = BaseDocument::new(DocumentConfig::default());
+        let root = document.root_node().id;
+        let tags = [
+            qual_name!("input", html),
+            qual_name!("textarea", html),
+            qual_name!("button", html),
+            qual_name!("style", html),
+            qual_name!("title", html),
+        ];
+        for tag in tags {
+            let node =
+                document.create_node(NodeData::Element(Box::new(ElementData::new(tag, vec![]))));
+            let mut mutator = document.mutate();
+            mutator.append_children(root, &[node]);
+            mutator.remove_and_drop_node(node);
+            drop(mutator);
+            assert!(document.get_node(node).is_none());
+        }
     }
 
     #[test]
