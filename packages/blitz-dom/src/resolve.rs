@@ -153,12 +153,21 @@ impl BaseDocument {
                 );
                 drop(sub_viewport);
 
+                sub_doc.hosted = true;
                 sub_doc.resolve(current_time_for_animations);
 
                 subdoc_is_animating |= sub_doc.is_animating();
             }
         }
         self.subdoc_is_animating = subdoc_is_animating;
+
+        // Scroll a dragged selection's container once the layout (and the sub-documents') is
+        // current; the document hosting this one drives the drag.
+        if self.hosted {
+            self.stop_selection_autoscroll();
+        } else {
+            self.tick_selection_autoscroll(current_time_for_animations);
+        }
         timer.record_time("subdocs");
 
         timer.print_times(&format!("Resolve({}): ", self.id()));
